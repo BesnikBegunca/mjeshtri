@@ -1,6 +1,11 @@
 import 'dart:convert';
-import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../data/dao_sketch_projects.dart';
 import '../models/vizato_sketch.dart';
@@ -15,6 +20,7 @@ class VizatoPage extends StatefulWidget {
 class _VizatoPageState extends State<VizatoPage> {
   final nameC = TextEditingController();
   final notesC = TextEditingController();
+  final GlobalKey _canvasKey = GlobalKey();
 
   final List<SketchItem> _items = [];
   List<SketchProject> _savedProjects = [];
@@ -29,6 +35,7 @@ class _VizatoPageState extends State<VizatoPage> {
 
   int? _editingProjectId;
   bool _loading = true;
+  bool _printing = false;
 
   @override
   void initState() {
@@ -131,22 +138,6 @@ class _VizatoPageState extends State<VizatoPage> {
           strokeWidth: _strokeWidth,
         ),
       );
-    } else if (_tool == DrawTool.text) {
-      final txt = await _askText();
-      if (txt != null && txt.trim().isNotEmpty) {
-        _items.add(
-          SketchItem(
-            type: 'text',
-            x1: a.dx,
-            y1: a.dy,
-            x2: a.dx,
-            y2: a.dy,
-            label: txt.trim(),
-            colorHex: colorToHex(_selectedColor),
-            strokeWidth: _strokeWidth,
-          ),
-        );
-      }
     }
 
     if (!mounted) return;
@@ -154,36 +145,6 @@ class _VizatoPageState extends State<VizatoPage> {
       _start = null;
       _current = null;
     });
-  }
-
-  Future<String?> _askText() async {
-    final c = TextEditingController();
-    final value = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Shkruaj tekstin'),
-        content: TextField(
-          controller: c,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'p.sh. Dhoma 1, Dritare, Hyrja...',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Anulo'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, c.text.trim()),
-            child: const Text('Ruaj'),
-          ),
-        ],
-      ),
-    );
-    c.dispose();
-    return value;
   }
 
   void _undo() {
@@ -210,13 +171,15 @@ class _VizatoPageState extends State<VizatoPage> {
       return;
     }
 
+    final now = DateTime.now();
+
     final project = SketchProject(
       id: _editingProjectId,
       name: name,
       notes: notesC.text.trim(),
       itemsJson: jsonEncode(_items.map((e) => e.toMap()).toList()),
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+      createdAt: now,
+      updatedAt: now,
     );
 
     if (_editingProjectId == null) {
@@ -226,8 +189,8 @@ class _VizatoPageState extends State<VizatoPage> {
       final old = await SketchProjectsDao.I.getById(_editingProjectId!);
       await SketchProjectsDao.I.update(
         project.copyWith(
-          createdAt: old?.createdAt ?? DateTime.now(),
-          updatedAt: DateTime.now(),
+          createdAt: old?.createdAt ?? now,
+          updatedAt: now,
         ),
       );
     }
@@ -247,7 +210,7 @@ class _VizatoPageState extends State<VizatoPage> {
       notesC.text = p.notes;
       _items
         ..clear()
-        ..addAll(p.items);
+        ..addAll(p.items.where((e) => e.type == 'line' || e.type == 'rect'));
       _start = null;
       _current = null;
     });
@@ -297,9 +260,107 @@ class _VizatoPageState extends State<VizatoPage> {
     });
   }
 
+  Future<Uint8List> _captureCanvasImage() async {
+    final boundary =
+        _canvasKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+
+    if (boundary == null) {
+      throw Exception('Canvas nuk u gjet.');
+    }
+
+    final image = await boundary.toImage(pixelRatio: 3.0);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+    if (byteData == null) {
+      throw Exception('Nuk u kriju image e skicës.');
+    }
+
+    return byteData.buffer.asUint8List();
+  }
+
+  Future<void> _printSketch() async {
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nuk ka skicë për printim.')),
+      );
+      return;
+    }
+
+    try {
+      setState(() {
+        _printing = true;
+      });
+
+      final imageBytes = await _captureCanvasImage();
+      final image = pw.MemoryImage(imageBytes);
+      final sketchName =
+          nameC.text.trim().isEmpty ? 'Skica pa emër' : nameC.text.trim();
+      final notes = notesC.text.trim();
+
+      await Printing.layoutPdf(
+        onLayout: (format) async {
+          final pdf = pw.Document();
+
+          pdf.addPage(
+            pw.Page(
+              pageFormat: format,
+              build: (context) {
+                return pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      sketchName,
+                      style: pw.TextStyle(
+                        fontSize: 20,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    if (notes.isNotEmpty) ...[
+                      pw.SizedBox(height: 6),
+                      pw.Text(
+                        notes,
+                        style: const pw.TextStyle(fontSize: 11),
+                      ),
+                    ],
+                    pw.SizedBox(height: 12),
+                    pw.Expanded(
+                      child: pw.Container(
+                        width: double.infinity,
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border.all(width: 1),
+                        ),
+                        padding: const pw.EdgeInsets.all(8),
+                        child: pw.FittedBox(
+                          fit: pw.BoxFit.contain,
+                          child: pw.Image(image),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          );
+
+          return pdf.save();
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gabim gjatë printimit: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _printing = false;
+        });
+      }
+    }
+  }
+
   Widget _toolButton({
     required IconData icon,
-    required String tooltip,
     required bool active,
     required VoidCallback onTap,
   }) {
@@ -333,20 +394,15 @@ class _VizatoPageState extends State<VizatoPage> {
 
     final previewItem = (_start != null && _current != null)
         ? SketchItem(
-            type: _tool == DrawTool.line
-                ? 'line'
-                : _tool == DrawTool.rect
-                    ? 'rect'
-                    : 'text',
+            type: _tool == DrawTool.line ? 'line' : 'rect',
             x1: _start!.dx,
             y1: _start!.dy,
             x2: _current!.dx,
             y2: _current!.dy,
             label: _tool == DrawTool.line
                 ? _metersLabel(_distanceMeters(_start!, _current!))
-                : _tool == DrawTool.rect
-                    ? 'Preview'
-                    : 'Text',
+                : 'W: ${((_current!.dx - _start!.dx).abs() / _scalePxPerMeter).toStringAsFixed(2)} m | '
+                    'H: ${((_current!.dy - _start!.dy).abs() / _scalePxPerMeter).toStringAsFixed(2)} m',
             colorHex: colorToHex(_selectedColor),
             strokeWidth: _strokeWidth,
           )
@@ -385,34 +441,23 @@ class _VizatoPageState extends State<VizatoPage> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
                 _toolButton(
                   icon: Icons.show_chart,
-                  tooltip: 'Line',
                   active: _tool == DrawTool.line,
                   onTap: () => setState(() => _tool = DrawTool.line),
                 ),
                 _toolButton(
                   icon: Icons.crop_square,
-                  tooltip: 'Rectangle',
                   active: _tool == DrawTool.rect,
                   onTap: () => setState(() => _tool = DrawTool.rect),
                 ),
                 _toolButton(
-                  icon: Icons.text_fields,
-                  tooltip: 'Text',
-                  active: _tool == DrawTool.text,
-                  onTap: () => setState(() => _tool = DrawTool.text),
-                ),
-                _toolButton(
                   icon: Icons.undo,
-                  tooltip: 'Undo',
                   active: false,
                   onTap: _undo,
                 ),
                 _toolButton(
                   icon: Icons.delete_sweep_outlined,
-                  tooltip: 'Clear',
                   active: false,
                   onTap: _clearCanvas,
                 ),
@@ -482,6 +527,17 @@ class _VizatoPageState extends State<VizatoPage> {
                   icon: const Icon(Icons.save_outlined),
                   label: const Text('Ruaj'),
                 ),
+                FilledButton.icon(
+                  onPressed: _printing ? null : _printSketch,
+                  icon: _printing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.print_outlined),
+                  label: const Text('Printo'),
+                ),
               ],
             ),
           ),
@@ -493,23 +549,19 @@ class _VizatoPageState extends State<VizatoPage> {
                 flex: 4,
                 child: Container(
                   color: Colors.grey.shade100,
-                  child: GestureDetector(
-                    onPanStart: _tool == DrawTool.text ? null : _onPanStart,
-                    onPanUpdate: _tool == DrawTool.text ? null : _onPanUpdate,
-                    onPanEnd: _tool == DrawTool.text ? null : _onPanEnd,
-                    onTapUp: _tool == DrawTool.text
-                        ? (d) async {
-                            _start = d.localPosition;
-                            _current = d.localPosition;
-                            await _onPanEnd(DragEndDetails());
-                          }
-                        : null,
-                    child: CustomPaint(
-                      painter: _SketchPainter(
-                        items: _items,
-                        previewItem: previewItem,
+                  child: RepaintBoundary(
+                    key: _canvasKey,
+                    child: GestureDetector(
+                      onPanStart: _onPanStart,
+                      onPanUpdate: _onPanUpdate,
+                      onPanEnd: _onPanEnd,
+                      child: CustomPaint(
+                        painter: _SketchPainter(
+                          items: _items,
+                          previewItem: previewItem,
+                        ),
+                        child: Container(),
                       ),
-                      child: Container(),
                     ),
                   ),
                 ),
@@ -627,8 +679,6 @@ class _SketchPainter extends CustomPainter {
       final rect = Rect.fromPoints(p1, p2);
       canvas.drawRect(rect, paint);
       _drawText(canvas, item.label, rect.topLeft + const Offset(8, 8), color);
-    } else if (item.type == 'text') {
-      _drawText(canvas, item.label, p1, color, fontSize: 16);
     }
   }
 
@@ -645,7 +695,7 @@ class _SketchPainter extends CustomPainter {
         color: color,
         fontSize: fontSize,
         fontWeight: FontWeight.w600,
-        backgroundColor: Colors.white.withOpacity(0.7),
+        backgroundColor: Colors.white.withOpacity(0.75),
       ),
     );
 
