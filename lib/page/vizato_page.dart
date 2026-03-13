@@ -37,14 +37,12 @@ class _VizatoPageState extends State<VizatoPage> {
   double _gridStep = 25.0;
   bool _moveMode = false;
 
-  // Snap për lidhje line-line në endpoint
   bool _endpointSnapEnabled = true;
   double _endpointSnapThreshold = 18.0;
 
   Offset? _start;
   Offset? _current;
 
-  // Ruajmë nëse start/current janë ngjit në endpoint ekzistues
   Offset? _snappedStartPoint;
   Offset? _snappedCurrentPoint;
 
@@ -103,10 +101,6 @@ class _VizatoPageState extends State<VizatoPage> {
   double _lineAngleDegrees(Offset a, Offset b) {
     final radians = math.atan2(b.dy - a.dy, b.dx - a.dx);
     return radians * 180 / math.pi;
-  }
-
-  String _metersLabel(double meters) {
-    return '${meters.toStringAsFixed(2)} m';
   }
 
   String _lineLabel(Offset a, Offset b) {
@@ -185,18 +179,6 @@ class _VizatoPageState extends State<VizatoPage> {
     return _cloneItem(item);
   }
 
-  Rect _itemBounds(SketchItem item) {
-    final p1 = Offset(item.x1, item.y1);
-    final p2 = Offset(item.x2, item.y2);
-
-    if (item.type == 'rect') {
-      return Rect.fromPoints(p1, p2);
-    }
-
-    final pad = math.max(14.0, item.strokeWidth + 10);
-    return Rect.fromPoints(p1, p2).inflate(pad);
-  }
-
   double _distancePointToSegment(Offset p, Offset a, Offset b) {
     final dx = b.dx - a.dx;
     final dy = b.dy - a.dy;
@@ -236,10 +218,6 @@ class _VizatoPageState extends State<VizatoPage> {
       }
     }
     return null;
-  }
-
-  bool _samePoint(Offset a, Offset b, {double epsilon = 0.01}) {
-    return (a - b).distance <= epsilon;
   }
 
   Offset? _findNearestLineEndpoint(Offset p) {
@@ -995,6 +973,7 @@ class _VizatoPageState extends State<VizatoPage> {
                           showGrid: true,
                           snappedStartPoint: _snappedStartPoint,
                           snappedCurrentPoint: _snappedCurrentPoint,
+                          scalePxPerMeter: _scalePxPerMeter,
                         ),
                         child: Container(),
                       ),
@@ -1092,6 +1071,18 @@ class _AngleMarker {
   });
 }
 
+class _ClosedShapeArea {
+  final List<Offset> points;
+  final double areaM2;
+  final Offset center;
+
+  _ClosedShapeArea({
+    required this.points,
+    required this.areaM2,
+    required this.center,
+  });
+}
+
 class _SketchPainter extends CustomPainter {
   final List<SketchItem> items;
   final SketchItem? previewItem;
@@ -1100,6 +1091,7 @@ class _SketchPainter extends CustomPainter {
   final bool showGrid;
   final Offset? snappedStartPoint;
   final Offset? snappedCurrentPoint;
+  final double scalePxPerMeter;
 
   _SketchPainter({
     required this.items,
@@ -1109,6 +1101,7 @@ class _SketchPainter extends CustomPainter {
     required this.showGrid,
     required this.snappedStartPoint,
     required this.snappedCurrentPoint,
+    required this.scalePxPerMeter,
   });
 
   @override
@@ -1129,6 +1122,7 @@ class _SketchPainter extends CustomPainter {
       _drawItem(canvas, previewItem!, isPreview: true);
     }
 
+    _drawClosedShapeAreas(canvas);
     _drawAngles(canvas);
 
     if (snappedStartPoint != null) {
@@ -1156,6 +1150,199 @@ class _SketchPainter extends CustomPainter {
 
   bool _samePoint(Offset a, Offset b, {double epsilon = 0.01}) {
     return (a - b).distance <= epsilon;
+  }
+
+  String _pointKey(Offset p) =>
+      '${p.dx.toStringAsFixed(2)}|${p.dy.toStringAsFixed(2)}';
+
+  double _polygonSignedAreaPx2(List<Offset> pts) {
+    double sum = 0;
+    for (int i = 0; i < pts.length; i++) {
+      final a = pts[i];
+      final b = pts[(i + 1) % pts.length];
+      sum += (a.dx * b.dy) - (b.dx * a.dy);
+    }
+    return sum / 2.0;
+  }
+
+  double _polygonAreaPx2(List<Offset> pts) {
+    return _polygonSignedAreaPx2(pts).abs();
+  }
+
+  Offset _polygonCentroid(List<Offset> pts) {
+    final signedArea = _polygonSignedAreaPx2(pts);
+    if (signedArea.abs() < 0.0001) {
+      double sx = 0;
+      double sy = 0;
+      for (final p in pts) {
+        sx += p.dx;
+        sy += p.dy;
+      }
+      return Offset(sx / pts.length, sy / pts.length);
+    }
+
+    double cx = 0;
+    double cy = 0;
+
+    for (int i = 0; i < pts.length; i++) {
+      final a = pts[i];
+      final b = pts[(i + 1) % pts.length];
+      final cross = (a.dx * b.dy) - (b.dx * a.dy);
+      cx += (a.dx + b.dx) * cross;
+      cy += (a.dy + b.dy) * cross;
+    }
+
+    final factor = 1 / (6 * signedArea);
+    return Offset(cx * factor, cy * factor);
+  }
+
+  bool _isSimpleClosedPolygon(List<Offset> pts) {
+    if (pts.length < 3) return false;
+
+    for (int i = 0; i < pts.length; i++) {
+      final a1 = pts[i];
+      final a2 = pts[(i + 1) % pts.length];
+      if (_samePoint(a1, a2)) return false;
+    }
+
+    return _polygonAreaPx2(pts) > 1;
+  }
+
+  List<_ClosedShapeArea> _collectClosedShapeAreas() {
+    final lineItems = items.where((e) => e.type == 'line').toList();
+    if (lineItems.length < 3) return [];
+
+    final pointMap = <String, Offset>{};
+    final adjacency = <String, Set<String>>{};
+
+    void addPoint(Offset p) {
+      pointMap[_pointKey(p)] = p;
+      adjacency.putIfAbsent(_pointKey(p), () => <String>{});
+    }
+
+    void addEdge(Offset a, Offset b) {
+      final ka = _pointKey(a);
+      final kb = _pointKey(b);
+      if (ka == kb) return;
+
+      addPoint(a);
+      addPoint(b);
+
+      adjacency[ka]!.add(kb);
+      adjacency[kb]!.add(ka);
+    }
+
+    for (final item in lineItems) {
+      addEdge(Offset(item.x1, item.y1), Offset(item.x2, item.y2));
+    }
+
+    final polygons = <_ClosedShapeArea>[];
+    final seenPolygons = <String>{};
+
+    final keys = pointMap.keys.toList()..sort();
+
+    void dfs(
+      String start,
+      String current,
+      List<String> path,
+      Set<String> usedEdges,
+    ) {
+      final neighbors = adjacency[current]?.toList() ?? [];
+      for (final next in neighbors) {
+        final ordered = [current, next]..sort();
+        final edgeKey = '${ordered[0]}__${ordered[1]}';
+
+        if (usedEdges.contains(edgeKey)) continue;
+
+        if (next == start && path.length >= 3) {
+          final polygonKeys = [...path];
+          final pts = polygonKeys.map((k) => pointMap[k]!).toList();
+
+          if (_isSimpleClosedPolygon(pts)) {
+            final normalizedKeys = [...polygonKeys]..sort();
+            final polyKey = normalizedKeys.join('||');
+
+            if (!seenPolygons.contains(polyKey)) {
+              seenPolygons.add(polyKey);
+
+              final areaPx2 = _polygonAreaPx2(pts);
+              final areaM2 = areaPx2 / (scalePxPerMeter * scalePxPerMeter);
+              final center = _polygonCentroid(pts);
+
+              if (areaM2 > 0.0001) {
+                polygons.add(
+                  _ClosedShapeArea(
+                    points: pts,
+                    areaM2: areaM2,
+                    center: center,
+                  ),
+                );
+              }
+            }
+          }
+          continue;
+        }
+
+        if (path.contains(next)) continue;
+
+        dfs(
+          start,
+          next,
+          [...path, next],
+          {...usedEdges, edgeKey},
+        );
+      }
+    }
+
+    for (final start in keys) {
+      dfs(start, start, [start], <String>{});
+    }
+
+    final filtered = <_ClosedShapeArea>[];
+    for (final poly in polygons) {
+      bool duplicate = false;
+      for (final existing in filtered) {
+        if ((existing.center - poly.center).distance < 1 &&
+            (existing.areaM2 - poly.areaM2).abs() < 0.0001 &&
+            existing.points.length == poly.points.length) {
+          duplicate = true;
+          break;
+        }
+      }
+      if (!duplicate) {
+        filtered.add(poly);
+      }
+    }
+
+    return filtered;
+  }
+
+  void _drawClosedShapeAreas(Canvas canvas) {
+    final polygons = _collectClosedShapeAreas();
+
+    for (final poly in polygons) {
+      final fillPath = Path()
+        ..moveTo(poly.points.first.dx, poly.points.first.dy);
+
+      for (int i = 1; i < poly.points.length; i++) {
+        fillPath.lineTo(poly.points[i].dx, poly.points[i].dy);
+      }
+      fillPath.close();
+
+      final fillPaint = Paint()
+        ..color = Colors.teal.withOpacity(0.08)
+        ..style = PaintingStyle.fill;
+
+      canvas.drawPath(fillPath, fillPaint);
+
+      _drawText(
+        canvas,
+        '${poly.areaM2.toStringAsFixed(2)} m²',
+        poly.center + const Offset(8, -8),
+        Colors.teal.shade700,
+        fontSize: 14,
+      );
+    }
   }
 
   double _angleBetweenVectors(Offset v1, Offset v2) {
