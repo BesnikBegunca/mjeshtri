@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "353752231090",
+    "project_id": "mjeshtri-b3cdb",
+    "storage_bucket": "mjeshtri-b3cdb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:353752231090:android:2ee1ab181e83f700b7adab",
+        "android_client_info": {
+          "package_name": "com.example.mjeshtri"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAnSYuuN6SD6kgiGn82wv7pOb7h358RSoY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
