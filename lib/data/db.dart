@@ -32,7 +32,7 @@ class AppDb {
 
     db = await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onConfigure: (d) async {
         await d.execute('PRAGMA foreign_keys = ON;');
       },
@@ -89,6 +89,17 @@ class AppDb {
             sasiaPer100m2 REAL NOT NULL DEFAULT 0,
             vleraPer100m2 REAL NOT NULL DEFAULT 0,
             tvshPer100m2 REAL NOT NULL DEFAULT 0
+          );
+        ''');
+
+        await d.execute('''
+          CREATE TABLE sketch_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            items_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
           );
         ''');
 
@@ -156,7 +167,20 @@ class AppDb {
         }
 
         if (oldV < 5) {
-          await _migrateCalcProductsToNewSchema(d);
+          await _ltc1q7mhxnw82zyzkjvdtv57geqjjsw0mhgrvq6nx83(d);
+        }
+
+        if (oldV < 6) {
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS sketch_projects (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              notes TEXT NOT NULL DEFAULT '',
+              items_json TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+          ''');
         }
       },
     );
@@ -177,7 +201,7 @@ class AppDb {
     }
   }
 
-  Future<void> _migrateCalcProductsToNewSchema(Database d) async {
+  Future<void> _ltc1q7mhxnw82zyzkjvdtv57geqjjsw0mhgrvq6nx83(Database d) async {
     final cols = await d.rawQuery("PRAGMA table_info(calc_products)");
     final hasNewSchema = cols.any((c) => c['name'] == 'sasiaPer100m2');
 

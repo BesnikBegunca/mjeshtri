@@ -5,6 +5,7 @@ import 'package:mjeshtri/page/punet_page.dart';
 import 'package:mjeshtri/page/punetoret_page.dart';
 import 'package:mjeshtri/page/qarkullimi_vjetor_page.dart';
 import 'package:mjeshtri/page/qmimore_page.dart';
+import 'package:mjeshtri/page/vizato_page.dart';
 import 'package:mjeshtri/theme/app_theme.dart';
 
 class MjeshtriApp extends StatelessWidget {
@@ -38,6 +39,7 @@ class _ShellState extends State<Shell> {
     PunetoretPage(),
     PunetPage(),
     QarkullimiVjetorPage(),
+    VizatoPage(),
   ];
 
   @override
@@ -81,6 +83,11 @@ class _ShellState extends State<Shell> {
                 icon: Icon(Icons.bar_chart_outlined),
                 selectedIcon: Icon(Icons.bar_chart),
                 label: Text('Qarkullimi Vjetor'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.grading_outlined),
+                selectedIcon: Icon(Icons.draw_rounded),
+                label: Text('Skica'),
               ),
             ],
           ),
