@@ -710,6 +710,6 @@ class _SketchPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SketchPainter oldDelegate) {
-    return oldDelegate.items != items || oldDelegate.previewItem != previewItem;
+    return true;
   }
 }

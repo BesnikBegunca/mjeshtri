@@ -1,43 +1,53 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const _bg = Color(0xFF0B0F10);        // background i errët
-  static const _surface = Color(0xFF11181A);   // panels
-  static const _card = Color(0xFF1A2224);      // cards
-  static const _card2 = Color(0xFF202A2D);     // hover/alt
-  static const _teal = Color(0xFF00C2A8);      // accent (si në foto)
-  static const _border = Color(0xFF2B3A3E);    // borders
-  static const _text = Color(0xFFEAF2F2);
-  static const _muted = Color(0xFF9FB3B6);
+  // Steam-like dark palette
+  static const _bg = Color(0xFF1B2838); // main background
+  static const _surface = Color(0xFF171A21); // panels / sidebar / top areas
+  static const _card = Color(0xFF223246); // cards
+  static const _card2 = Color(0xFF2A475E); // alt / inputs / hover
+  static const _accent = Color(0xFF66C0F4); // Steam blue
+  static const _border = Color(0xFF3B4B5F); // borders
+  static const _text = Color(0xFFC7D5E0); // main text
+  static const _muted = Color(0xFF8F98A0); // secondary text
 
   static ThemeData dark() {
     final cs = ColorScheme.fromSeed(
-      seedColor: _teal,
+      seedColor: _accent,
       brightness: Brightness.dark,
       surface: _surface,
       background: _bg,
     ).copyWith(
-      primary: _teal,
-      secondary: _teal,
-      error: const Color(0xFFFF5C5C),
+      primary: _accent,
+      secondary: _accent,
+      error: const Color(0xFFE74C3C),
     );
 
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: cs,
-
       scaffoldBackgroundColor: _bg,
-
-      // Teksti
       textTheme: const TextTheme(
-        headlineMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, color: _text),
-        titleLarge: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: _text),
-        bodyMedium: TextStyle(fontSize: 14, color: _text),
-        bodySmall: TextStyle(fontSize: 12, color: _muted),
+        headlineMedium: TextStyle(
+          fontSize: 28,
+          fontWeight: FontWeight.w700,
+          color: _text,
+        ),
+        titleLarge: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+          color: _text,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          color: _text,
+        ),
+        bodySmall: TextStyle(
+          fontSize: 12,
+          color: _muted,
+        ),
       ),
-
-      // Cards
       cardTheme: const CardThemeData(
         color: _card,
         elevation: 0,
@@ -46,47 +56,49 @@ class AppTheme {
           side: BorderSide(color: _border),
         ),
       ),
-
-
-      // Divider
-      dividerTheme: const DividerThemeData(color: _border, thickness: 1),
-
-      // Buttons
+      dividerTheme: const DividerThemeData(
+        color: _border,
+        thickness: 1,
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: _teal,
-          foregroundColor: Colors.black,
+          backgroundColor: _accent,
+          foregroundColor: const Color(0xFF0B141C),
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           textStyle: const TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
-
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: _text,
           side: const BorderSide(color: _border),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
-
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: _text,
+          foregroundColor: _accent,
           textStyle: const TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
-
-      // TextFields (kjo e rregullon “default fieldat”)
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: _card2,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         labelStyle: const TextStyle(color: _muted),
         hintStyle: const TextStyle(color: _muted),
-        floatingLabelStyle: const TextStyle(color: _teal, fontWeight: FontWeight.w600),
+        floatingLabelStyle: const TextStyle(
+          color: _accent,
+          fontWeight: FontWeight.w600,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: _border),
@@ -97,50 +109,47 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: _teal, width: 1.6),
+          borderSide: const BorderSide(color: _accent, width: 1.6),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFFF5C5C)),
+          borderSide: const BorderSide(color: Color(0xFFE74C3C)),
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFFF5C5C), width: 1.6),
+          borderSide: const BorderSide(color: Color(0xFFE74C3C), width: 1.6),
         ),
       ),
-
-      // NavRail (sidebar)
       navigationRailTheme: NavigationRailThemeData(
-        backgroundColor: const Color(0xFF0F1516),
-        selectedIconTheme: const IconThemeData(color: _teal),
+        backgroundColor: _surface,
+        selectedIconTheme: const IconThemeData(color: _accent),
         unselectedIconTheme: const IconThemeData(color: _muted),
-        selectedLabelTextStyle: const TextStyle(color: _teal, fontWeight: FontWeight.w700),
+        selectedLabelTextStyle: const TextStyle(
+          color: _accent,
+          fontWeight: FontWeight.w700,
+        ),
         unselectedLabelTextStyle: const TextStyle(color: _muted),
         indicatorColor: _card2,
       ),
-
-      // DataTable
       dataTableTheme: const DataTableThemeData(
-        headingTextStyle: TextStyle(color: _muted, fontWeight: FontWeight.w700),
+        headingTextStyle: TextStyle(
+          color: _muted,
+          fontWeight: FontWeight.w700,
+        ),
         dataTextStyle: TextStyle(color: _text),
         dividerThickness: 1,
       ),
-
-      // Scrollbar (si në foto)
       scrollbarTheme: ScrollbarThemeData(
         thumbColor: WidgetStateProperty.all(_border),
         trackColor: WidgetStateProperty.all(Colors.transparent),
         radius: const Radius.circular(12),
         thickness: WidgetStateProperty.all(10),
       ),
-
-      // Tabs/segmented
       tabBarTheme: const TabBarThemeData(
-        labelColor: _teal,
+        labelColor: _accent,
         unselectedLabelColor: _muted,
-        indicatorColor: _teal,
+        indicatorColor: _accent,
       ),
-
     );
   }
 }
