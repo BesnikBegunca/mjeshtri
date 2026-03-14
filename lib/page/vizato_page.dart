@@ -18,10 +18,43 @@ class VizatoPage extends StatefulWidget {
   State<VizatoPage> createState() => _VizatoPageState();
 }
 
+class _DimensionRectInput {
+  final double widthM;
+  final double heightM;
+  final Offset start;
+
+  _DimensionRectInput({
+    required this.widthM,
+    required this.heightM,
+    required this.start,
+  });
+}
+
+class _WallInput {
+  double lengthM;
+  AxisDirection direction;
+
+  _WallInput({
+    required this.lengthM,
+    required this.direction,
+  });
+}
+
+class _WallsShapeInput {
+  final List<_WallInput> walls;
+
+  _WallsShapeInput({
+    required this.walls,
+  });
+}
+
 class _VizatoPageState extends State<VizatoPage> {
   final nameC = TextEditingController();
   final notesC = TextEditingController();
   final GlobalKey _canvasKey = GlobalKey();
+
+  final ScrollController _verticalCanvasScroll = ScrollController();
+  final ScrollController _horizontalCanvasScroll = ScrollController();
 
   final List<SketchItem> _items = [];
   final List<SketchItem> _redoStack = [];
@@ -36,6 +69,7 @@ class _VizatoPageState extends State<VizatoPage> {
   bool _snapToGrid = true;
   double _gridStep = 25.0;
   bool _moveMode = false;
+  bool _panViewMode = false;
 
   bool _endpointSnapEnabled = true;
   double _endpointSnapThreshold = 18.0;
@@ -48,10 +82,18 @@ class _VizatoPageState extends State<VizatoPage> {
 
   int? _selectedIndex;
   Offset? _moveLastPoint;
+  Offset? _viewDragLastGlobal;
 
   int? _editingProjectId;
   bool _loading = true;
   bool _printing = false;
+
+  double _canvasWidth = 2200;
+  double _canvasHeight = 2200;
+  double _viewZoom = 1.0;
+
+  static const double _minCanvasSize = 2200;
+  static const double _canvasPadding = 240;
 
   @override
   void initState() {
@@ -63,6 +105,8 @@ class _VizatoPageState extends State<VizatoPage> {
   void dispose() {
     nameC.dispose();
     notesC.dispose();
+    _verticalCanvasScroll.dispose();
+    _horizontalCanvasScroll.dispose();
     super.dispose();
   }
 
@@ -80,6 +124,61 @@ class _VizatoPageState extends State<VizatoPage> {
     setState(() {
       _savedProjects = list;
     });
+  }
+
+  Size _computeRequiredCanvasSize({
+    List<SketchItem>? extraItems,
+  }) {
+    double maxX = _minCanvasSize;
+    double maxY = _minCanvasSize;
+
+    void takePoint(Offset p) {
+      if (p.dx > maxX) maxX = p.dx;
+      if (p.dy > maxY) maxY = p.dy;
+    }
+
+    for (final item in _items) {
+      takePoint(Offset(item.x1, item.y1));
+      takePoint(Offset(item.x2, item.y2));
+    }
+
+    if (extraItems != null) {
+      for (final item in extraItems) {
+        takePoint(Offset(item.x1, item.y1));
+        takePoint(Offset(item.x2, item.y2));
+      }
+    }
+
+    return Size(
+      math.max(_minCanvasSize, maxX + _canvasPadding),
+      math.max(_minCanvasSize, maxY + _canvasPadding),
+    );
+  }
+
+  void _zoomIn() {
+    setState(() {
+      _viewZoom = (_viewZoom + 0.1).clamp(0.4, 3.0);
+    });
+  }
+
+  void _zoomOut() {
+    setState(() {
+      _viewZoom = (_viewZoom - 0.1).clamp(0.4, 3.0);
+    });
+  }
+
+  void _zoomReset() {
+    setState(() {
+      _viewZoom = 1.0;
+    });
+  }
+
+  Offset _displayToCanvas(Offset local) {
+    final canvasPoint = Offset(local.dx / _viewZoom, local.dy / _viewZoom);
+    return Offset(
+      canvasPoint.dx.clamp(0.0, _canvasWidth),
+      canvasPoint.dy.clamp(0.0, _canvasHeight),
+    );
   }
 
   Offset _snapOffset(Offset p) {
@@ -132,12 +231,17 @@ class _VizatoPageState extends State<VizatoPage> {
   }
 
   SketchItem _copyWithMoved(SketchItem item, Offset delta) {
+    final newX1 = math.max(0.0, item.x1 + delta.dx);
+    final newY1 = math.max(0.0, item.y1 + delta.dy);
+    final newX2 = math.max(0.0, item.x2 + delta.dx);
+    final newY2 = math.max(0.0, item.y2 + delta.dy);
+
     final moved = SketchItem(
       type: item.type,
-      x1: item.x1 + delta.dx,
-      y1: item.y1 + delta.dy,
-      x2: item.x2 + delta.dx,
-      y2: item.y2 + delta.dy,
+      x1: newX1,
+      y1: newY1,
+      x2: newX2,
+      y2: newY2,
       label: item.label,
       colorHex: item.colorHex,
       strokeWidth: item.strokeWidth,
@@ -221,7 +325,10 @@ class _VizatoPageState extends State<VizatoPage> {
   }
 
   Offset? _findNearestLineEndpoint(Offset p) {
-    if (!_endpointSnapEnabled || _tool != DrawTool.line || _moveMode) {
+    if (!_endpointSnapEnabled ||
+        _tool != DrawTool.line ||
+        _moveMode ||
+        _panViewMode) {
       return null;
     }
 
@@ -250,13 +357,13 @@ class _VizatoPageState extends State<VizatoPage> {
     return nearest;
   }
 
-  ({Offset point, Offset? snappedTo}) _resolveDrawPoint(Offset raw) {
-    final endpoint = _findNearestLineEndpoint(raw);
+  ({Offset point, Offset? snappedTo}) _resolveDrawPoint(Offset rawCanvasPoint) {
+    final endpoint = _findNearestLineEndpoint(rawCanvasPoint);
     if (endpoint != null) {
       return (point: endpoint, snappedTo: endpoint);
     }
 
-    final grid = _snapOffset(raw);
+    final grid = _snapOffset(rawCanvasPoint);
     return (point: grid, snappedTo: null);
   }
 
@@ -265,7 +372,21 @@ class _VizatoPageState extends State<VizatoPage> {
   }
 
   void _onPanStart(DragStartDetails d) {
-    final resolved = _resolveDrawPoint(d.localPosition);
+    if (_panViewMode) {
+      setState(() {
+        _viewDragLastGlobal = d.globalPosition;
+        _start = null;
+        _current = null;
+        _moveLastPoint = null;
+        _snappedStartPoint = null;
+        _snappedCurrentPoint = null;
+        _selectedIndex = null;
+      });
+      return;
+    }
+
+    final canvasPoint = _displayToCanvas(d.localPosition);
+    final resolved = _resolveDrawPoint(canvasPoint);
 
     if (_moveMode) {
       final hitIndex = _findItemIndexAt(resolved.point);
@@ -290,7 +411,36 @@ class _VizatoPageState extends State<VizatoPage> {
   }
 
   void _onPanUpdate(DragUpdateDetails d) {
-    final resolved = _resolveDrawPoint(d.localPosition);
+    if (_panViewMode) {
+      if (_viewDragLastGlobal == null) {
+        _viewDragLastGlobal = d.globalPosition;
+        return;
+      }
+
+      final delta = d.globalPosition - _viewDragLastGlobal!;
+
+      if (_horizontalCanvasScroll.hasClients) {
+        final newHorizontal = (_horizontalCanvasScroll.offset - delta.dx).clamp(
+          0.0,
+          _horizontalCanvasScroll.position.maxScrollExtent,
+        );
+        _horizontalCanvasScroll.jumpTo(newHorizontal);
+      }
+
+      if (_verticalCanvasScroll.hasClients) {
+        final newVertical = (_verticalCanvasScroll.offset - delta.dy).clamp(
+          0.0,
+          _verticalCanvasScroll.position.maxScrollExtent,
+        );
+        _verticalCanvasScroll.jumpTo(newVertical);
+      }
+
+      _viewDragLastGlobal = d.globalPosition;
+      return;
+    }
+
+    final canvasPoint = _displayToCanvas(d.localPosition);
+    final resolved = _resolveDrawPoint(canvasPoint);
 
     if (_moveMode) {
       if (_selectedIndex == null || _moveLastPoint == null) return;
@@ -298,10 +448,14 @@ class _VizatoPageState extends State<VizatoPage> {
       final delta = resolved.point - _moveLastPoint!;
       if (delta == Offset.zero) return;
 
+      final movedItem = _copyWithMoved(_items[_selectedIndex!], delta);
+      final required = _computeRequiredCanvasSize(extraItems: [movedItem]);
+
       setState(() {
-        _items[_selectedIndex!] =
-            _copyWithMoved(_items[_selectedIndex!], delta);
+        _items[_selectedIndex!] = movedItem;
         _moveLastPoint = resolved.point;
+        _canvasWidth = required.width;
+        _canvasHeight = required.height;
       });
       return;
     }
@@ -313,6 +467,11 @@ class _VizatoPageState extends State<VizatoPage> {
   }
 
   Future<void> _onPanEnd(DragEndDetails d) async {
+    if (_panViewMode) {
+      _viewDragLastGlobal = null;
+      return;
+    }
+
     if (_moveMode) {
       if (_selectedIndex != null) {
         _pushRedoClear();
@@ -338,38 +497,43 @@ class _VizatoPageState extends State<VizatoPage> {
       return;
     }
 
+    SketchItem? newItem;
+
     if (_tool == DrawTool.line) {
-      _items.add(
-        SketchItem(
-          type: 'line',
-          x1: a.dx,
-          y1: a.dy,
-          x2: b.dx,
-          y2: b.dy,
-          label: _lineLabel(a, b),
-          colorHex: colorToHex(_selectedColor),
-          strokeWidth: _strokeWidth,
-        ),
+      newItem = SketchItem(
+        type: 'line',
+        x1: a.dx,
+        y1: a.dy,
+        x2: b.dx,
+        y2: b.dy,
+        label: _lineLabel(a, b),
+        colorHex: colorToHex(_selectedColor),
+        strokeWidth: _strokeWidth,
       );
     } else if (_tool == DrawTool.rect) {
-      _items.add(
-        SketchItem(
-          type: 'rect',
-          x1: a.dx,
-          y1: a.dy,
-          x2: b.dx,
-          y2: b.dy,
-          label: _rectLabel(a, b),
-          colorHex: colorToHex(_selectedColor),
-          strokeWidth: _strokeWidth,
-        ),
+      newItem = SketchItem(
+        type: 'rect',
+        x1: a.dx,
+        y1: a.dy,
+        x2: b.dx,
+        y2: b.dy,
+        label: _rectLabel(a, b),
+        colorHex: colorToHex(_selectedColor),
+        strokeWidth: _strokeWidth,
       );
     }
+
+    if (newItem == null) return;
+
+    final required = _computeRequiredCanvasSize(extraItems: [newItem]);
 
     _pushRedoClear();
 
     if (!mounted) return;
     setState(() {
+      _items.add(newItem!);
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
       _selectedIndex = _items.isNotEmpty ? _items.length - 1 : null;
       _start = null;
       _current = null;
@@ -379,7 +543,10 @@ class _VizatoPageState extends State<VizatoPage> {
   }
 
   void _onTapDown(TapDownDetails d) {
-    final resolved = _resolveDrawPoint(d.localPosition);
+    if (_panViewMode) return;
+
+    final canvasPoint = _displayToCanvas(d.localPosition);
+    final resolved = _resolveDrawPoint(canvasPoint);
     final hitIndex = _findItemIndexAt(resolved.point);
 
     setState(() {
@@ -400,6 +567,9 @@ class _VizatoPageState extends State<VizatoPage> {
       if (_selectedIndex != null && _selectedIndex! >= _items.length) {
         _selectedIndex = _items.isEmpty ? null : _items.length - 1;
       }
+      final required = _computeRequiredCanvasSize();
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
       _start = null;
       _current = null;
       _snappedStartPoint = null;
@@ -409,9 +579,13 @@ class _VizatoPageState extends State<VizatoPage> {
 
   void _redo() {
     if (_redoStack.isEmpty) return;
+    final restored = _cloneItem(_redoStack.removeLast());
+    final required = _computeRequiredCanvasSize(extraItems: [restored]);
+
     setState(() {
-      final restored = _redoStack.removeLast();
-      _items.add(_cloneItem(restored));
+      _items.add(restored);
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
       _selectedIndex = _items.length - 1;
       _start = null;
       _current = null;
@@ -430,6 +604,9 @@ class _VizatoPageState extends State<VizatoPage> {
       } else if (_selectedIndex! >= _items.length) {
         _selectedIndex = _items.length - 1;
       }
+      final required = _computeRequiredCanvasSize();
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
     });
   }
 
@@ -438,9 +615,12 @@ class _VizatoPageState extends State<VizatoPage> {
 
     final item = _items[_selectedIndex!];
     final duplicated = _copyWithMoved(item, const Offset(20, 20));
+    final required = _computeRequiredCanvasSize(extraItems: [duplicated]);
 
     setState(() {
       _items.add(duplicated);
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
       _selectedIndex = _items.length - 1;
       _pushRedoClear();
     });
@@ -454,9 +634,485 @@ class _VizatoPageState extends State<VizatoPage> {
       _start = null;
       _current = null;
       _moveLastPoint = null;
+      _viewDragLastGlobal = null;
+      _snappedStartPoint = null;
+      _snappedCurrentPoint = null;
+      _canvasWidth = _minCanvasSize;
+      _canvasHeight = _minCanvasSize;
+    });
+  }
+
+  void _addRectFromDimensions({
+    required double widthM,
+    required double heightM,
+    required Offset start,
+  }) {
+    final widthPx = widthM * _scalePxPerMeter;
+    final heightPx = heightM * _scalePxPerMeter;
+
+    final a = _snapOffset(start);
+    final b = _snapOffset(Offset(start.dx + widthPx, start.dy + heightPx));
+
+    final item = SketchItem(
+      type: 'rect',
+      x1: a.dx,
+      y1: a.dy,
+      x2: b.dx,
+      y2: b.dy,
+      label: _rectLabel(a, b),
+      colorHex: colorToHex(_selectedColor),
+      strokeWidth: _strokeWidth,
+    );
+
+    final required = _computeRequiredCanvasSize(extraItems: [item]);
+
+    setState(() {
+      _items.add(item);
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
+      _selectedIndex = _items.length - 1;
+      _pushRedoClear();
+      _start = null;
+      _current = null;
+      _moveLastPoint = null;
+      _viewDragLastGlobal = null;
       _snappedStartPoint = null;
       _snappedCurrentPoint = null;
     });
+  }
+
+  Future<void> _showAddDimensionRectDialog() async {
+    final widthC = TextEditingController();
+    final heightC = TextEditingController();
+    final startXC = TextEditingController(text: '50');
+    final startYC = TextEditingController(text: '50');
+
+    final result = await showDialog<_DimensionRectInput>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Shto dimensione'),
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: widthC,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Gjerësia (m)',
+                    hintText: 'p.sh. 8.5',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: heightC,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Gjatesia / Lartësia (m)',
+                    hintText: 'p.sh. 6.2',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: startXC,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Start X (px)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: startYC,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Start Y (px)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Shëno dimensionet në metra. Skica krijohet automatikisht sipas shkallës: 1m = ${_scalePxPerMeter.toStringAsFixed(0)} px',
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Anulo'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final widthM =
+                    double.tryParse(widthC.text.trim().replaceAll(',', '.'));
+                final heightM =
+                    double.tryParse(heightC.text.trim().replaceAll(',', '.'));
+                final startX =
+                    double.tryParse(startXC.text.trim().replaceAll(',', '.'));
+                final startY =
+                    double.tryParse(startYC.text.trim().replaceAll(',', '.'));
+
+                if (widthM == null ||
+                    heightM == null ||
+                    startX == null ||
+                    startY == null ||
+                    widthM <= 0 ||
+                    heightM <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Shkruaj dimensione valide.'),
+                    ),
+                  );
+                  return;
+                }
+
+                Navigator.pop(
+                  ctx,
+                  _DimensionRectInput(
+                    widthM: widthM,
+                    heightM: heightM,
+                    start: Offset(startX, startY),
+                  ),
+                );
+              },
+              child: const Text('Shto'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null) {
+      _addRectFromDimensions(
+        widthM: result.widthM,
+        heightM: result.heightM,
+        start: result.start,
+      );
+    }
+  }
+
+  Offset _directionToOffset(AxisDirection direction, double distancePx) {
+    switch (direction) {
+      case AxisDirection.right:
+        return Offset(distancePx, 0);
+      case AxisDirection.left:
+        return Offset(-distancePx, 0);
+      case AxisDirection.down:
+        return Offset(0, distancePx);
+      case AxisDirection.up:
+        return Offset(0, -distancePx);
+    }
+  }
+
+  String _directionLabel(AxisDirection d) {
+    switch (d) {
+      case AxisDirection.right:
+        return '→ Djathtas';
+      case AxisDirection.left:
+        return '← Majtas';
+      case AxisDirection.down:
+        return '↓ Poshtë';
+      case AxisDirection.up:
+        return '↑ Nalt';
+    }
+  }
+
+  void _addWallsShape({
+    required List<_WallInput> walls,
+  }) {
+    if (walls.isEmpty) return;
+
+    Offset current = Offset.zero;
+    final rawSegments = <({Offset a, Offset b})>[];
+
+    double minX = 0;
+    double minY = 0;
+    double maxX = 0;
+    double maxY = 0;
+
+    void takePoint(Offset p) {
+      if (p.dx < minX) minX = p.dx;
+      if (p.dy < minY) minY = p.dy;
+      if (p.dx > maxX) maxX = p.dx;
+      if (p.dy > maxY) maxY = p.dy;
+    }
+
+    takePoint(current);
+
+    for (final wall in walls) {
+      if (wall.lengthM <= 0) continue;
+
+      final px = wall.lengthM * _scalePxPerMeter;
+      final delta = _directionToOffset(wall.direction, px);
+      final next = _snapOffset(current + delta);
+
+      if ((next - current).distance >= 1) {
+        rawSegments.add((a: current, b: next));
+        takePoint(next);
+      }
+
+      current = next;
+    }
+
+    if ((current - Offset.zero).distance >= 1) {
+      rawSegments.add((a: current, b: Offset.zero));
+      takePoint(Offset.zero);
+    }
+
+    if (rawSegments.isEmpty) return;
+
+    final shapeWidth = maxX - minX;
+    final shapeHeight = maxY - minY;
+
+    final centerX = _canvasWidth / 2;
+    final centerY = _canvasHeight / 2;
+
+    final finalOffset = Offset(
+      centerX - (minX + shapeWidth / 2),
+      centerY - (minY + shapeHeight / 2),
+    );
+
+    final newItems = <SketchItem>[];
+
+    for (final seg in rawSegments) {
+      final a = _snapOffset(seg.a + finalOffset);
+      final b = _snapOffset(seg.b + finalOffset);
+
+      if ((b - a).distance >= 1) {
+        newItems.add(
+          SketchItem(
+            type: 'line',
+            x1: a.dx,
+            y1: a.dy,
+            x2: b.dx,
+            y2: b.dy,
+            label: _lineLabel(a, b),
+            colorHex: colorToHex(_selectedColor),
+            strokeWidth: _strokeWidth,
+          ),
+        );
+      }
+    }
+
+    final required = _computeRequiredCanvasSize(extraItems: newItems);
+
+    setState(() {
+      _items.addAll(newItems);
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
+      _selectedIndex = _items.length - 1;
+      _pushRedoClear();
+      _start = null;
+      _current = null;
+      _moveLastPoint = null;
+      _viewDragLastGlobal = null;
+      _snappedStartPoint = null;
+      _snappedCurrentPoint = null;
+    });
+  }
+
+  Future<void> _showAddWallsDialog() async {
+    final wallCountC = TextEditingController(text: '4');
+
+    List<_WallInput> walls = List.generate(
+      4,
+      (_) => _WallInput(lengthM: 0, direction: AxisDirection.right),
+    );
+
+    final result = await showDialog<_WallsShapeInput>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            void rebuildWallList(int count) {
+              if (count < 1) count = 1;
+              if (count > 20) count = 20;
+
+              if (walls.length < count) {
+                walls.addAll(
+                  List.generate(
+                    count - walls.length,
+                    (_) => _WallInput(
+                      lengthM: 0,
+                      direction: AxisDirection.right,
+                    ),
+                  ),
+                );
+              } else if (walls.length > count) {
+                walls = walls.sublist(0, count);
+              }
+            }
+
+            return AlertDialog(
+              title: const Text('Shto mure'),
+              content: SizedBox(
+                width: 460,
+                height: 540,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: wallCountC,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Sa mure i ka objekti?',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) {
+                        final count = int.tryParse(v.trim());
+                        if (count != null) {
+                          setLocalState(() {
+                            rebuildWallList(count);
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Për secilin mur jep gjatësinë dhe drejtimin. Forma mbyllet automatikisht në fund dhe vendoset në qendër të canvas-it.',
+                      style: Theme.of(ctx).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: walls.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (_, i) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                width: 34,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 14),
+                                  child: Text('${i + 1}.'),
+                                ),
+                              ),
+                              Expanded(
+                                child: TextFormField(
+                                  initialValue: walls[i].lengthM == 0
+                                      ? ''
+                                      : walls[i].lengthM.toString(),
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Gjatësia (m)',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  onChanged: (v) {
+                                    final parsed = double.tryParse(
+                                      v.trim().replaceAll(',', '.'),
+                                    );
+                                    walls[i].lengthM = parsed ?? 0;
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              SizedBox(
+                                width: 150,
+                                child: DropdownButtonFormField<AxisDirection>(
+                                  value: walls[i].direction,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Drejtimi',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: [
+                                    AxisDirection.right,
+                                    AxisDirection.down,
+                                    AxisDirection.left,
+                                    AxisDirection.up,
+                                  ]
+                                      .map(
+                                        (d) => DropdownMenuItem(
+                                          value: d,
+                                          child: Text(_directionLabel(d)),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (v) {
+                                    if (v != null) {
+                                      walls[i].direction = v;
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Shënim: muri i fundit lidhet automatikisht me pikën e parë që forma me dalë e mbyllur.',
+                      style: Theme.of(ctx).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Anulo'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final validWalls =
+                        walls.where((e) => e.lengthM > 0).toList();
+                    if (validWalls.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Shto të paktën një mur valid.'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.pop(
+                      ctx,
+                      _WallsShapeInput(
+                        walls: validWalls,
+                      ),
+                    );
+                  },
+                  child: const Text('Vizato'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      _addWallsShape(
+        walls: result.walls,
+      );
+    }
   }
 
   Future<void> _saveProject() async {
@@ -501,24 +1157,30 @@ class _VizatoPageState extends State<VizatoPage> {
   }
 
   Future<void> _loadProject(SketchProject p) async {
+    final loadedItems = p.items
+        .where((e) => e.type == 'line' || e.type == 'rect')
+        .map(_rebuildItemLabel)
+        .toList();
+
     setState(() {
       _editingProjectId = p.id;
       nameC.text = p.name;
       notesC.text = p.notes;
       _items
         ..clear()
-        ..addAll(
-          p.items
-              .where((e) => e.type == 'line' || e.type == 'rect')
-              .map(_rebuildItemLabel),
-        );
+        ..addAll(loadedItems);
       _redoStack.clear();
       _selectedIndex = null;
       _start = null;
       _current = null;
       _moveLastPoint = null;
+      _viewDragLastGlobal = null;
       _snappedStartPoint = null;
       _snappedCurrentPoint = null;
+
+      final required = _computeRequiredCanvasSize();
+      _canvasWidth = required.width;
+      _canvasHeight = required.height;
     });
   }
 
@@ -554,8 +1216,11 @@ class _VizatoPageState extends State<VizatoPage> {
           _start = null;
           _current = null;
           _moveLastPoint = null;
+          _viewDragLastGlobal = null;
           _snappedStartPoint = null;
           _snappedCurrentPoint = null;
+          _canvasWidth = _minCanvasSize;
+          _canvasHeight = _minCanvasSize;
         });
       }
       await _loadProjects();
@@ -573,8 +1238,14 @@ class _VizatoPageState extends State<VizatoPage> {
       _start = null;
       _current = null;
       _moveLastPoint = null;
+      _viewDragLastGlobal = null;
       _snappedStartPoint = null;
       _snappedCurrentPoint = null;
+      _canvasWidth = _minCanvasSize;
+      _canvasHeight = _minCanvasSize;
+      _viewZoom = 1.0;
+      _moveMode = false;
+      _panViewMode = false;
     });
   }
 
@@ -714,20 +1385,24 @@ class _VizatoPageState extends State<VizatoPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final previewItem = (!_moveMode && _start != null && _current != null)
-        ? SketchItem(
-            type: _tool == DrawTool.line ? 'line' : 'rect',
-            x1: _start!.dx,
-            y1: _start!.dy,
-            x2: _current!.dx,
-            y2: _current!.dy,
-            label: _tool == DrawTool.line
-                ? _lineLabel(_start!, _current!)
-                : _rectLabel(_start!, _current!),
-            colorHex: colorToHex(_selectedColor),
-            strokeWidth: _strokeWidth,
-          )
-        : null;
+    final previewItem =
+        (!_moveMode && !_panViewMode && _start != null && _current != null)
+            ? SketchItem(
+                type: _tool == DrawTool.line ? 'line' : 'rect',
+                x1: _start!.dx,
+                y1: _start!.dy,
+                x2: _current!.dx,
+                y2: _current!.dy,
+                label: _tool == DrawTool.line
+                    ? _lineLabel(_start!, _current!)
+                    : _rectLabel(_start!, _current!),
+                colorHex: colorToHex(_selectedColor),
+                strokeWidth: _strokeWidth,
+              )
+            : null;
+
+    final displayedWidth = _canvasWidth * _viewZoom;
+    final displayedHeight = _canvasHeight * _viewZoom;
 
     return Column(
       children: [
@@ -764,19 +1439,33 @@ class _VizatoPageState extends State<VizatoPage> {
                 ),
                 _toolButton(
                   icon: Icons.show_chart,
-                  active: !_moveMode && _tool == DrawTool.line,
+                  active: !_moveMode && !_panViewMode && _tool == DrawTool.line,
                   onTap: () => setState(() {
+                    _panViewMode = false;
                     _moveMode = false;
                     _tool = DrawTool.line;
+                    _start = null;
+                    _current = null;
+                    _moveLastPoint = null;
+                    _viewDragLastGlobal = null;
+                    _snappedStartPoint = null;
+                    _snappedCurrentPoint = null;
                   }),
                   tooltip: 'Line',
                 ),
                 _toolButton(
                   icon: Icons.crop_square,
-                  active: !_moveMode && _tool == DrawTool.rect,
+                  active: !_moveMode && !_panViewMode && _tool == DrawTool.rect,
                   onTap: () => setState(() {
+                    _panViewMode = false;
                     _moveMode = false;
                     _tool = DrawTool.rect;
+                    _start = null;
+                    _current = null;
+                    _moveLastPoint = null;
+                    _viewDragLastGlobal = null;
+                    _snappedStartPoint = null;
+                    _snappedCurrentPoint = null;
                   }),
                   tooltip: 'Rectangle',
                 ),
@@ -784,14 +1473,44 @@ class _VizatoPageState extends State<VizatoPage> {
                   icon: Icons.open_with,
                   active: _moveMode,
                   onTap: () => setState(() {
+                    _panViewMode = false;
                     _moveMode = !_moveMode;
                     _start = null;
                     _current = null;
                     _moveLastPoint = null;
+                    _viewDragLastGlobal = null;
                     _snappedStartPoint = null;
                     _snappedCurrentPoint = null;
                   }),
                   tooltip: 'Move/Select',
+                ),
+                _toolButton(
+                  icon: Icons.pan_tool_alt_outlined,
+                  active: _panViewMode,
+                  onTap: () => setState(() {
+                    _panViewMode = !_panViewMode;
+                    if (_panViewMode) {
+                      _moveMode = false;
+                    }
+                    _start = null;
+                    _current = null;
+                    _moveLastPoint = null;
+                    _viewDragLastGlobal = null;
+                    _snappedStartPoint = null;
+                    _snappedCurrentPoint = null;
+                    _selectedIndex = null;
+                  }),
+                  tooltip: 'Drag to view',
+                ),
+                OutlinedButton.icon(
+                  onPressed: _showAddDimensionRectDialog,
+                  icon: const Icon(Icons.straighten),
+                  label: const Text('Shto dimensione'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _showAddWallsDialog,
+                  icon: const Icon(Icons.architecture),
+                  label: const Text('Shto mure'),
                 ),
                 _toolButton(
                   icon: Icons.undo,
@@ -925,6 +1644,21 @@ class _VizatoPageState extends State<VizatoPage> {
                   },
                 ),
                 OutlinedButton.icon(
+                  onPressed: _zoomOut,
+                  icon: const Icon(Icons.zoom_out),
+                  label: const Text('Zoom -'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _zoomReset,
+                  icon: const Icon(Icons.center_focus_strong),
+                  label: Text('${(_viewZoom * 100).round()}%'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _zoomIn,
+                  icon: const Icon(Icons.zoom_in),
+                  label: const Text('Zoom +'),
+                ),
+                OutlinedButton.icon(
                   onPressed: _newProject,
                   icon: const Icon(Icons.add_box_outlined),
                   label: const Text('Skicë e re'),
@@ -956,28 +1690,98 @@ class _VizatoPageState extends State<VizatoPage> {
                 flex: 4,
                 child: Container(
                   color: Colors.grey.shade100,
-                  child: RepaintBoundary(
-                    key: _canvasKey,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapDown: _onTapDown,
-                      onPanStart: _onPanStart,
-                      onPanUpdate: _onPanUpdate,
-                      onPanEnd: _onPanEnd,
-                      child: CustomPaint(
-                        painter: _SketchPainter(
-                          items: _items,
-                          previewItem: previewItem,
-                          selectedIndex: _selectedIndex,
-                          gridStep: _gridStep,
-                          showGrid: true,
-                          snappedStartPoint: _snappedStartPoint,
-                          snappedCurrentPoint: _snappedCurrentPoint,
-                          scalePxPerMeter: _scalePxPerMeter,
-                        ),
-                        child: Container(),
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Canvas: ${_canvasWidth.toStringAsFixed(0)} x ${_canvasHeight.toStringAsFixed(0)} px',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(width: 16),
+                          Text(
+                            'Zoom: ${(_viewZoom * 100).round()}%',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: MouseRegion(
+                          cursor: _panViewMode
+                              ? SystemMouseCursors.grab
+                              : _moveMode
+                                  ? SystemMouseCursors.move
+                                  : SystemMouseCursors.precise,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: Theme.of(context).dividerColor,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Scrollbar(
+                                controller: _verticalCanvasScroll,
+                                thumbVisibility: true,
+                                child: SingleChildScrollView(
+                                  controller: _verticalCanvasScroll,
+                                  scrollDirection: Axis.vertical,
+                                  child: Scrollbar(
+                                    controller: _horizontalCanvasScroll,
+                                    thumbVisibility: true,
+                                    notificationPredicate: (notification) {
+                                      return notification.depth == 1;
+                                    },
+                                    child: SingleChildScrollView(
+                                      controller: _horizontalCanvasScroll,
+                                      scrollDirection: Axis.horizontal,
+                                      child: RepaintBoundary(
+                                        key: _canvasKey,
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTapDown: _onTapDown,
+                                          onPanStart: _onPanStart,
+                                          onPanUpdate: _onPanUpdate,
+                                          onPanEnd: _onPanEnd,
+                                          child: SizedBox(
+                                            width: displayedWidth,
+                                            height: displayedHeight,
+                                            child: CustomPaint(
+                                              painter: _SketchPainter(
+                                                items: _items,
+                                                previewItem: previewItem,
+                                                selectedIndex: _selectedIndex,
+                                                gridStep: _gridStep,
+                                                showGrid: true,
+                                                snappedStartPoint:
+                                                    _snappedStartPoint,
+                                                snappedCurrentPoint:
+                                                    _snappedCurrentPoint,
+                                                scalePxPerMeter:
+                                                    _scalePxPerMeter,
+                                                viewZoom: _viewZoom,
+                                                logicalCanvasSize: Size(
+                                                  _canvasWidth,
+                                                  _canvasHeight,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1002,9 +1806,11 @@ class _VizatoPageState extends State<VizatoPage> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            _moveMode
-                                ? 'Mode: Move/Select'
-                                : 'Mode: ${_tool == DrawTool.line ? 'Line' : 'Rect'}',
+                            _panViewMode
+                                ? 'Mode: Drag View'
+                                : _moveMode
+                                    ? 'Mode: Move/Select'
+                                    : 'Mode: ${_tool == DrawTool.line ? 'Line' : 'Rect'}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                           const SizedBox(height: 6),
@@ -1012,6 +1818,11 @@ class _VizatoPageState extends State<VizatoPage> {
                             _selectedIndex == null
                                 ? 'S’ka element të zgjedhur'
                                 : 'Selected: ${_items[_selectedIndex!].type}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Elemente: ${_items.length}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
@@ -1092,6 +1903,8 @@ class _SketchPainter extends CustomPainter {
   final Offset? snappedStartPoint;
   final Offset? snappedCurrentPoint;
   final double scalePxPerMeter;
+  final double viewZoom;
+  final Size logicalCanvasSize;
 
   _SketchPainter({
     required this.items,
@@ -1102,10 +1915,19 @@ class _SketchPainter extends CustomPainter {
     required this.snappedStartPoint,
     required this.snappedCurrentPoint,
     required this.scalePxPerMeter,
+    required this.viewZoom,
+    required this.logicalCanvasSize,
   });
+
+  Offset _s(Offset p) => Offset(p.dx * viewZoom, p.dy * viewZoom);
+
+  double _sv(double v) => v * viewZoom;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final backgroundPaint = Paint()..color = Colors.white;
+    canvas.drawRect(Offset.zero & size, backgroundPaint);
+
     if (showGrid) {
       _drawGrid(canvas, size);
     }
@@ -1136,9 +1958,9 @@ class _SketchPainter extends CustomPainter {
   void _drawGrid(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = Colors.grey.withOpacity(0.18)
-      ..strokeWidth = 1;
+      ..strokeWidth = math.max(0.6, viewZoom);
 
-    final step = gridStep <= 1 ? 25.0 : gridStep;
+    final step = (gridStep <= 1 ? 25.0 : gridStep) * viewZoom;
 
     for (double x = 0; x <= size.width; x += step) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
@@ -1322,10 +2144,10 @@ class _SketchPainter extends CustomPainter {
 
     for (final poly in polygons) {
       final fillPath = Path()
-        ..moveTo(poly.points.first.dx, poly.points.first.dy);
+        ..moveTo(_sv(poly.points.first.dx), _sv(poly.points.first.dy));
 
       for (int i = 1; i < poly.points.length; i++) {
-        fillPath.lineTo(poly.points[i].dx, poly.points[i].dy);
+        fillPath.lineTo(_sv(poly.points[i].dx), _sv(poly.points[i].dy));
       }
       fillPath.close();
 
@@ -1338,7 +2160,7 @@ class _SketchPainter extends CustomPainter {
       _drawText(
         canvas,
         '${poly.areaM2.toStringAsFixed(2)} m²',
-        poly.center + const Offset(8, -8),
+        _s(poly.center) + Offset(_sv(8), _sv(-8)),
         Colors.teal.shade700,
         fontSize: 14,
       );
@@ -1426,9 +2248,9 @@ class _SketchPainter extends CustomPainter {
   }
 
   void _drawAngleMarker(Canvas canvas, _AngleMarker marker) {
-    final center = marker.center;
-    final v1 = marker.p1 - center;
-    final v2 = marker.p2 - center;
+    final center = _s(marker.center);
+    final v1 = _s(marker.p1) - center;
+    final v2 = _s(marker.p2) - center;
 
     final a1 = math.atan2(v1.dy, v1.dx);
     final a2 = math.atan2(v2.dy, v2.dx);
@@ -1448,12 +2270,12 @@ class _SketchPainter extends CustomPainter {
       sweepAngle = -sweepAngle;
     }
 
-    final radius = 24.0;
+    final radius = math.max(16.0, _sv(24.0));
     final arcRect = Rect.fromCircle(center: center, radius: radius);
 
     final arcPaint = Paint()
       ..color = Colors.deepOrange
-      ..strokeWidth = 2
+      ..strokeWidth = math.max(1.4, _sv(2))
       ..style = PaintingStyle.stroke;
 
     canvas.drawArc(
@@ -1466,7 +2288,8 @@ class _SketchPainter extends CustomPainter {
 
     final labelAngle = startAngle + sweepAngle / 2;
     final labelPos = center +
-        Offset(math.cos(labelAngle), math.sin(labelAngle)) * (radius + 12);
+        Offset(math.cos(labelAngle), math.sin(labelAngle)) *
+            (radius + math.max(10.0, _sv(12)));
 
     _drawText(
       canvas,
@@ -1478,17 +2301,19 @@ class _SketchPainter extends CustomPainter {
   }
 
   void _drawSnapPoint(Canvas canvas, Offset p) {
+    final sp = _s(p);
+
     final fillPaint = Paint()
       ..color = Colors.deepOrange.withOpacity(0.18)
       ..style = PaintingStyle.fill;
 
     final strokePaint = Paint()
       ..color = Colors.deepOrange
-      ..strokeWidth = 2
+      ..strokeWidth = math.max(1.2, _sv(2))
       ..style = PaintingStyle.stroke;
 
-    canvas.drawCircle(p, 9, fillPaint);
-    canvas.drawCircle(p, 5, strokePaint);
+    canvas.drawCircle(sp, math.max(6, _sv(9)), fillPaint);
+    canvas.drawCircle(sp, math.max(4, _sv(5)), strokePaint);
   }
 
   void _drawItem(
@@ -1502,11 +2327,11 @@ class _SketchPainter extends CustomPainter {
 
     final paint = Paint()
       ..color = color
-      ..strokeWidth = item.strokeWidth
+      ..strokeWidth = math.max(1, item.strokeWidth * viewZoom)
       ..style = PaintingStyle.stroke;
 
-    final p1 = Offset(item.x1, item.y1);
-    final p2 = Offset(item.x2, item.y2);
+    final p1 = _s(Offset(item.x1, item.y1));
+    final p2 = _s(Offset(item.x2, item.y2));
 
     if (item.type == 'line') {
       canvas.drawLine(p1, p2, paint);
@@ -1514,14 +2339,14 @@ class _SketchPainter extends CustomPainter {
       if (isSelected) {
         final selPaint = Paint()
           ..color = Colors.orange
-          ..strokeWidth = item.strokeWidth + 2
+          ..strokeWidth = math.max(1.4, (item.strokeWidth + 2) * viewZoom)
           ..style = PaintingStyle.stroke;
-        canvas.drawCircle(p1, 5, selPaint);
-        canvas.drawCircle(p2, 5, selPaint);
+        canvas.drawCircle(p1, math.max(4, _sv(5)), selPaint);
+        canvas.drawCircle(p2, math.max(4, _sv(5)), selPaint);
       }
 
       final mid = Offset((p1.dx + p2.dx) / 2, (p1.dy + p2.dy) / 2);
-      _drawText(canvas, item.label, mid + const Offset(8, -8), color);
+      _drawText(canvas, item.label, mid + Offset(_sv(8), _sv(-8)), color);
     } else if (item.type == 'rect') {
       final rect = Rect.fromPoints(p1, p2);
       canvas.drawRect(rect, paint);
@@ -1529,19 +2354,24 @@ class _SketchPainter extends CustomPainter {
       if (isSelected) {
         final selectedPaint = Paint()
           ..color = Colors.orange
-          ..strokeWidth = 2
+          ..strokeWidth = math.max(1.2, _sv(2))
           ..style = PaintingStyle.stroke;
-        canvas.drawRect(rect.inflate(4), selectedPaint);
+        canvas.drawRect(rect.inflate(math.max(2, _sv(4))), selectedPaint);
       }
 
-      _drawText(canvas, item.label, rect.topLeft + const Offset(8, 8), color);
+      _drawText(
+        canvas,
+        item.label,
+        rect.topLeft + Offset(_sv(8), _sv(8)),
+        color,
+      );
     }
 
     if (isSelected && item.type == 'line') {
-      final bounds = Rect.fromPoints(p1, p2).inflate(6);
+      final bounds = Rect.fromPoints(p1, p2).inflate(math.max(4, _sv(6)));
       final selectedPaint = Paint()
         ..color = Colors.orange
-        ..strokeWidth = 2
+        ..strokeWidth = math.max(1.2, _sv(2))
         ..style = PaintingStyle.stroke;
       canvas.drawRect(bounds, selectedPaint);
     }
@@ -1554,11 +2384,13 @@ class _SketchPainter extends CustomPainter {
     Color color, {
     double fontSize = 14,
   }) {
+    final scaledFont = (fontSize * viewZoom).clamp(10.0, 26.0);
+
     final textSpan = TextSpan(
       text: text,
       style: TextStyle(
         color: color,
-        fontSize: fontSize,
+        fontSize: scaledFont,
         fontWeight: FontWeight.w600,
         backgroundColor: Colors.white.withOpacity(0.78),
       ),
@@ -1568,7 +2400,7 @@ class _SketchPainter extends CustomPainter {
       text: textSpan,
       textDirection: TextDirection.ltr,
       maxLines: 3,
-    )..layout(maxWidth: 320);
+    )..layout(maxWidth: 320 * viewZoom);
 
     tp.paint(canvas, offset);
   }
