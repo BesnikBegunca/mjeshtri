@@ -16,6 +16,7 @@ class KalkuloPage extends StatefulWidget {
 
 class _KalkuloPageState extends State<KalkuloPage> {
   final m2C = TextEditingController();
+  final fixedLaborC = TextEditingController();
 
   Parameters? p;
   List<PriceItem> laborItems = [];
@@ -25,6 +26,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
   final Set<int> selectedProductIds = {};
 
   bool includePaint = true;
+  bool laborFixedValue = false;
 
   static const double bucketSize = 25.0;
 
@@ -37,6 +39,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
   @override
   void dispose() {
     m2C.dispose();
+    fixedLaborC.dispose();
     super.dispose();
   }
 
@@ -222,22 +225,21 @@ class _KalkuloPageState extends State<KalkuloPage> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
-            final m2 = _toDouble(m2C.text);
+            final double m2 = _toDouble(m2C.text);
 
-            // KREJT këto ruhen për 100m²
-            final sasiaPer100 = _toDouble(sasiaC.text);
-            final vleraPer100 = _toDouble(vleraC.text);
-            final tvshPer100 = _toDouble(tvshC.text);
+            final double sasiaPer100 = _toDouble(sasiaC.text);
+            final double vleraPer100 = _toDouble(vleraC.text);
+            final double tvshPer100 = _toDouble(tvshC.text);
 
-            // Këto janë vetëm preview sipas m² aktuale
-            final factor = m2 / 100.0;
-            final sasiaTotale = sasiaPer100 * factor;
-            final vleraTotale = vleraPer100 * factor;
-            final tvshTotale = tvshPer100 * factor;
-            final gjithsej = vleraTotale + tvshTotale;
+            final double factor = m2 / 100.0;
+            final double sasiaTotale = sasiaPer100 * factor;
+            final double vleraTotale = vleraPer100 * factor;
+            final double tvshTotale = tvshPer100 * factor;
+            final double gjithsej = vleraTotale + tvshTotale;
 
             return AlertDialog(
-              title: Text(item == null ? 'Shto produkt' : 'Përditëso produktin'),
+              title:
+                  Text(item == null ? 'Shto produkt' : 'Përditëso produktin'),
               content: SizedBox(
                 width: 720,
                 child: SingleChildScrollView(
@@ -324,7 +326,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                             const SizedBox(height: 8),
-                            Text('Sasia/100m²: ${sasiaPer100.toStringAsFixed(2)}'),
+                            Text(
+                                'Sasia/100m²: ${sasiaPer100.toStringAsFixed(2)}'),
                             Text('Vlera/100m²: ${eur(vleraPer100)}'),
                             Text('TVSH/100m²: ${eur(tvshPer100)}'),
                             const Divider(),
@@ -333,7 +336,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                             const SizedBox(height: 8),
-                            Text('Sasia totale: ${sasiaTotale.toStringAsFixed(2)}'),
+                            Text(
+                                'Sasia totale: ${sasiaTotale.toStringAsFixed(2)}'),
                             Text('Vlera totale: ${eur(vleraTotale)}'),
                             Text('TVSH totale: ${eur(tvshTotale)}'),
                             const Divider(),
@@ -376,13 +380,13 @@ class _KalkuloPageState extends State<KalkuloPage> {
                       }
 
                       if (item == null) {
-                        final insertedId = await CalcProductsDao.I.insert(newItem);
+                        final insertedId =
+                            await CalcProductsDao.I.insert(newItem);
 
                         if (insertedId <= 0) {
                           throw Exception('Insert nuk ktheu ID valide.');
                         }
 
-                        // automatikisht shtohet në kalkulim sapo ruhet
                         selectedProductIds.add(insertedId);
                       } else {
                         await CalcProductsDao.I.update(newItem);
@@ -453,35 +457,38 @@ class _KalkuloPageState extends State<KalkuloPage> {
 
   @override
   Widget build(BuildContext context) {
-    final m2 = _toDouble(m2C.text);
+    final double m2 = _toDouble(m2C.text);
 
-    final liters = _calcLiters(m2);
-    final buckets = _calcBuckets(liters);
+    final double liters = _calcLiters(m2);
+    final int buckets = _calcBuckets(liters);
 
-    final bucketPrice = includePaint ? (p?.bucketPrice ?? 0) : 0;
-    final paintTotal = buckets * bucketPrice;
+    final double bucketPrice =
+        includePaint ? (p?.bucketPrice ?? 0).toDouble() : 0.0;
+    final double paintTotal = buckets * bucketPrice;
 
-    final laborPrice = selectedLabor?.price ?? 0;
-    final laborTotal = m2 * laborPrice;
+    final double laborPrice = (selectedLabor?.price ?? 0).toDouble();
+    final double fixedLaborValue = _toDouble(fixedLaborC.text);
+    final double laborTotal =
+        laborFixedValue ? fixedLaborValue : (m2 * laborPrice);
 
     final calcProducts = _selectedProducts;
 
-    final materialTotalPaTvsh = calcProducts.fold<double>(
-      0,
+    final double materialTotalPaTvsh = calcProducts.fold<double>(
+      0.0,
       (sum, x) => sum + x.vleraPaTvsh(m2),
     );
 
-    final materialTotalTvsh = calcProducts.fold<double>(
-      0,
+    final double materialTotalTvsh = calcProducts.fold<double>(
+      0.0,
       (sum, x) => sum + x.vleraTvsh(m2),
     );
 
-    final materialTotalMeTvsh = calcProducts.fold<double>(
-      0,
+    final double materialTotalMeTvsh = calcProducts.fold<double>(
+      0.0,
       (sum, x) => sum + x.vleraMeTvsh(m2),
     );
 
-    final grandTotal = materialTotalMeTvsh + laborTotal + paintTotal;
+    final double grandTotal = materialTotalMeTvsh + laborTotal + paintTotal;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
@@ -547,7 +554,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                       Text('Humbje: ${p!.wastePct}%'),
                       Text('Shtresa: ${p!.coats}'),
                       Text('Kova: ${bucketSize.toStringAsFixed(0)}L'),
-                      Text('Çmimi kove: ${eur(p!.bucketPrice)}'),
+                      Text('Çmimi kove: ${eur((p!.bucketPrice).toDouble())}'),
                     ],
                     Text('Kategori pune: ${p!.laborCategory}'),
                   ],
@@ -558,6 +565,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
           Wrap(
             spacing: 12,
             runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               SizedBox(
                 width: 280,
@@ -566,10 +574,12 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Sipërfaqja (m²)',
+                  decoration: InputDecoration(
+                    labelText: laborFixedValue
+                        ? 'Sipërfaqja (m²) - vetëm për materiale'
+                        : 'Sipërfaqja (m²)',
                     hintText: 'p.sh. 120',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
@@ -582,7 +592,9 @@ class _KalkuloPageState extends State<KalkuloPage> {
                       .map(
                         (x) => DropdownMenuItem(
                           value: x,
-                          child: Text('${x.name} • ${eur(x.price)}/${x.unit}'),
+                          child: Text(
+                            '${x.name} • ${eur((x.price).toDouble())}/${x.unit}',
+                          ),
                         ),
                       )
                       .toList(),
@@ -595,6 +607,55 @@ class _KalkuloPageState extends State<KalkuloPage> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Wrap(
+                spacing: 16,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Checkbox(
+                        value: laborFixedValue,
+                        onChanged: (v) {
+                          setState(() {
+                            laborFixedValue = v ?? false;
+                          });
+                        },
+                      ),
+                      const Text('Vlerë fikse për punën'),
+                    ],
+                  ),
+                  if (laborFixedValue)
+                    SizedBox(
+                      width: 220,
+                      child: TextField(
+                        controller: fixedLaborC,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Shuma fikse',
+                          hintText: 'p.sh. 300',
+                          border: OutlineInputBorder(),
+                          prefixText: '€ ',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                      ),
+                    ),
+                  if (laborFixedValue)
+                    Text(
+                      'Kur kjo është aktive, puna nuk llogaritet me m².',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
           Card(
             child: Padding(
@@ -603,27 +664,20 @@ class _KalkuloPageState extends State<KalkuloPage> {
                 spacing: 16,
                 runSpacing: 12,
                 children: [
-                  if (includePaint) ...[
-                    _StatPill(
-                      icon: Icons.inventory_2_outlined,
-                      label: 'Kova',
-                      value: '$buckets',
+                  if (includePaint)
+                    _PaintSummaryBox(
+                      buckets: buckets,
+                      liters: liters,
+                      paintTotal: paintTotal,
                     ),
-                    _StatPill(
-                      icon: Icons.opacity_outlined,
-                      label: 'Litra',
-                      value: '${liters.toStringAsFixed(2)} L',
-                    ),
-                    _StatPill(
-                      icon: Icons.format_paint_outlined,
-                      label: 'Bojë',
-                      value: eur(paintTotal),
-                    ),
-                  ],
                   _StatPill(
                     icon: Icons.handyman_outlined,
-                    label: p?.laborCategory ?? 'Punë',
-                    value: '${eur(laborTotal)} (${eur(laborPrice)}/m²)',
+                    label: laborFixedValue
+                        ? '${p?.laborCategory ?? 'Punë'} (fikse)'
+                        : (p?.laborCategory ?? 'Punë'),
+                    value: laborFixedValue
+                        ? eur(laborTotal)
+                        : '${eur(laborTotal)} (${eur(laborPrice)}/m²)',
                   ),
                   _StatPill(
                     icon: Icons.widgets_outlined,
@@ -645,10 +699,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
                     label: 'Produkte në kalkulim',
                     value: '${calcProducts.length}',
                   ),
-                  _StatPill(
-                    icon: Icons.calculate_outlined,
-                    label: 'Totali final',
-                    value: eur(grandTotal),
+                  _TotalSummaryBox(
+                    total: grandTotal,
                   ),
                 ],
               ),
@@ -683,13 +735,13 @@ class _KalkuloPageState extends State<KalkuloPage> {
                         DataColumn(label: Text('Veprime')),
                       ],
                       rows: products.map((item) {
-                        final isSelected =
-                            item.id != null && selectedProductIds.contains(item.id);
+                        final isSelected = item.id != null &&
+                            selectedProductIds.contains(item.id);
 
-                        final sasia = item.qtyForM2(m2);
-                        final vlera = item.vleraPaTvsh(m2);
-                        final tvsh = item.vleraTvsh(m2);
-                        final total = item.vleraMeTvsh(m2);
+                        final double sasia = item.qtyForM2(m2);
+                        final double vlera = item.vleraPaTvsh(m2);
+                        final double tvsh = item.vleraTvsh(m2);
+                        final double total = item.vleraMeTvsh(m2);
 
                         return DataRow(
                           selected: isSelected,
@@ -713,7 +765,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
                                 children: [
                                   IconButton(
                                     tooltip: 'Ndrysho',
-                                    onPressed: () => _openProductDialog(item: item),
+                                    onPressed: () =>
+                                        _openProductDialog(item: item),
                                     icon: const Icon(Icons.edit_outlined),
                                   ),
                                   IconButton(
@@ -729,6 +782,138 @@ class _KalkuloPageState extends State<KalkuloPage> {
                       }).toList(),
                     ),
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaintSummaryBox extends StatelessWidget {
+  final int buckets;
+  final double liters;
+  final double paintTotal;
+
+  const _PaintSummaryBox({
+    required this.buckets,
+    required this.liters,
+    required this.paintTotal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const greenColor = Colors.green;
+
+    Widget item({
+      required IconData icon,
+      required String label,
+      required String value,
+    }) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Theme.of(context).cardColor.withOpacity(0.20),
+          border: Border.all(
+            color: greenColor.withOpacity(0.35),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: greenColor),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 2),
+                Text(value, style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: greenColor,
+          width: 1.4,
+        ),
+        color: greenColor.withOpacity(0.06),
+      ),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          item(
+            icon: Icons.inventory_2_outlined,
+            label: 'Kova',
+            value: '$buckets',
+          ),
+          item(
+            icon: Icons.opacity_outlined,
+            label: 'Litra',
+            value: '${liters.toStringAsFixed(2)} L',
+          ),
+          item(
+            icon: Icons.format_paint_outlined,
+            label: 'Bojë',
+            value: eur(paintTotal),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TotalSummaryBox extends StatelessWidget {
+  final double total;
+
+  const _TotalSummaryBox({
+    required this.total,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const greenColor = Colors.green;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: greenColor,
+          width: 1.6,
+        ),
+        color: greenColor.withOpacity(0.08),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.calculate_outlined,
+            size: 22,
+            color: greenColor,
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Totali final',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                eur(total),
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ],
           ),
         ],
       ),
