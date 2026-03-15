@@ -145,7 +145,18 @@ class _KalkuloPageState extends State<KalkuloPage> {
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
             return AlertDialog(
-              title: const Text('Zgjedh produktet për kalkulim'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              title: Row(
+                children: [
+                  const Icon(Icons.playlist_add_check_circle_outlined),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text('Zgjedh produktet për kalkulim'),
+                  ),
+                ],
+              ),
               content: SizedBox(
                 width: 560,
                 child: products.isEmpty
@@ -163,27 +174,61 @@ class _KalkuloPageState extends State<KalkuloPage> {
                             final totalPer100 =
                                 x.vleraPer100m2 + x.tvshPer100m2;
 
-                            return CheckboxListTile(
-                              value: checked,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(x.emertimi),
-                              subtitle: Text(
-                                '${x.kodi} • ${x.pako} • '
-                                'Sasia/100m²: ${x.sasiaPer100m2.toStringAsFixed(2)} • '
-                                'Vlera/100m²: ${eur(x.vleraPer100m2)} • '
-                                'TVSH/100m²: ${eur(x.tvshPer100m2)} • '
-                                'Gjithsej/100m²: ${eur(totalPer100)}',
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: checked
+                                      ? Theme.of(context).colorScheme.primary
+                                      : Theme.of(context).dividerColor,
+                                ),
+                                color: checked
+                                    ? Theme.of(context)
+                                        .colorScheme
+                                        .primary
+                                        .withOpacity(0.06)
+                                    : Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withOpacity(0.25),
                               ),
-                              onChanged: (v) {
-                                if (x.id == null) return;
-                                setLocalState(() {
-                                  if (v == true) {
-                                    tempSelected.add(x.id!);
-                                  } else {
-                                    tempSelected.remove(x.id!);
-                                  }
-                                });
-                              },
+                              child: CheckboxListTile(
+                                value: checked,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                title: Text(
+                                  x.emertimi,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    '${x.kodi} • ${x.pako} • '
+                                    'Sasia/100m²: ${x.sasiaPer100m2.toStringAsFixed(2)} • '
+                                    'Vlera/100m²: ${eur(x.vleraPer100m2)} • '
+                                    'TVSH/100m²: ${eur(x.tvshPer100m2)} • '
+                                    'Gjithsej/100m²: ${eur(totalPer100)}',
+                                  ),
+                                ),
+                                onChanged: (v) {
+                                  if (x.id == null) return;
+                                  setLocalState(() {
+                                    if (v == true) {
+                                      tempSelected.add(x.id!);
+                                    } else {
+                                      tempSelected.remove(x.id!);
+                                    }
+                                  });
+                                },
+                              ),
                             );
                           }).toList(),
                         ),
@@ -194,7 +239,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Anulo'),
                 ),
-                TextButton(
+                OutlinedButton(
                   onPressed: () {
                     setLocalState(() {
                       tempSelected.clear();
@@ -205,7 +250,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   },
                   child: const Text('Selekto krejt'),
                 ),
-                TextButton(
+                OutlinedButton(
                   onPressed: () {
                     setLocalState(() {
                       tempSelected.clear();
@@ -264,114 +309,125 @@ class _KalkuloPageState extends State<KalkuloPage> {
             final double gjithsej = vleraTotale + tvshTotale;
 
             return AlertDialog(
-              title:
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              title: Row(
+                children: [
+                  Icon(item == null
+                      ? Icons.add_box_outlined
+                      : Icons.edit_note_outlined),
+                  const SizedBox(width: 10),
                   Text(item == null ? 'Shto produkt' : 'Përditëso produktin'),
+                ],
+              ),
               content: SizedBox(
                 width: 720,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextField(
+                      _PremiumTextField(
                         controller: kodiC,
-                        decoration: const InputDecoration(
-                          labelText: 'KODI',
-                          border: OutlineInputBorder(),
-                        ),
+                        label: 'KODI',
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
+                      const SizedBox(height: 12),
+                      _PremiumTextField(
                         controller: emertimiC,
-                        decoration: const InputDecoration(
-                          labelText: 'EMËRTIMI',
-                          border: OutlineInputBorder(),
-                        ),
+                        label: 'EMËRTIMI',
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
+                      const SizedBox(height: 12),
+                      _PremiumTextField(
                         controller: pakoC,
-                        decoration: const InputDecoration(
-                          labelText: 'PAKO',
-                          border: OutlineInputBorder(),
-                        ),
+                        label: 'PAKO',
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
+                      const SizedBox(height: 12),
+                      _PremiumTextField(
                         controller: sasiaC,
+                        label: 'SASIA për 100m²',
+                        hint: 'p.sh. 60',
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'SASIA për 100m²',
-                          hintText: 'p.sh. 60',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (_) => setLocalState(() {}),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: vleraC,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'VLERA për 100m²',
-                          hintText: 'p.sh. 120.00',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (_) => setLocalState(() {}),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: tvshC,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'TVSH për 100m²',
-                          hintText: 'p.sh. 21.60',
-                          border: OutlineInputBorder(),
                         ),
                         onChanged: (_) => setLocalState(() {}),
                       ),
                       const SizedBox(height: 12),
+                      _PremiumTextField(
+                        controller: vleraC,
+                        label: 'VLERA për 100m²',
+                        hint: 'p.sh. 120.00',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        onChanged: (_) => setLocalState(() {}),
+                      ),
+                      const SizedBox(height: 12),
+                      _PremiumTextField(
+                        controller: tvshC,
+                        label: 'TVSH për 100m²',
+                        hint: 'p.sh. 21.60',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        onChanged: (_) => setLocalState(() {}),
+                      ),
+                      const SizedBox(height: 14),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
                           border: Border.all(
                             color: Theme.of(context).dividerColor,
                           ),
-                          borderRadius: BorderRadius.circular(12),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withOpacity(0.30),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'Këto vlera ruhen për 100m²',
-                              style: Theme.of(context).textTheme.titleSmall,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             Text(
                               'Sasia/100m²: ${sasiaPer100.toStringAsFixed(2)}',
                             ),
                             Text('Vlera/100m²: ${eur(vleraPer100)}'),
                             Text('TVSH/100m²: ${eur(tvshPer100)}'),
-                            const Divider(),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Divider(height: 1),
+                            ),
                             Text(
                               'Preview për ${m2.toStringAsFixed(2)} m²',
-                              style: Theme.of(context).textTheme.titleSmall,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             Text(
                               'Sasia totale: ${sasiaTotale.toStringAsFixed(2)}',
                             ),
                             Text('Vlera totale: ${eur(vleraTotale)}'),
                             Text('TVSH totale: ${eur(tvshTotale)}'),
-                            const Divider(),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 10),
+                              child: Divider(height: 1),
+                            ),
                             Text(
                               'Vlera + TVSH: ${eur(gjithsej)}',
-                              style: Theme.of(context).textTheme.titleMedium,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
@@ -461,6 +517,9 @@ class _KalkuloPageState extends State<KalkuloPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+        ),
         title: const Text('Fshije produktin?'),
         content: Text('A je i sigurt që don me fshi "${item.emertimi}"?'),
         actions: [
@@ -537,65 +596,69 @@ class _KalkuloPageState extends State<KalkuloPage> {
             ].where((e) => e).length;
 
             return AlertDialog(
-              title: const Text('Gjenero faturën'),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              title: Row(
+                children: const [
+                  Icon(Icons.receipt_long_outlined),
+                  SizedBox(width: 10),
+                  Text('Gjenero faturën'),
+                ],
+              ),
               content: SizedBox(
                 width: 560,
                 child: SingleChildScrollView(
                   child: Column(
                     children: [
-                      TextField(
+                      _PremiumTextField(
                         controller: invoiceNoC,
-                        decoration: const InputDecoration(
-                          labelText: 'Nr. faturës',
-                          border: OutlineInputBorder(),
-                        ),
+                        label: 'Nr. faturës',
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
+                      const SizedBox(height: 12),
+                      _PremiumTextField(
                         controller: clientC,
-                        decoration: const InputDecoration(
-                          labelText: 'Klienti',
-                          border: OutlineInputBorder(),
-                        ),
+                        label: 'Klienti',
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
+                      const SizedBox(height: 12),
+                      _PremiumTextField(
                         controller: projectC,
-                        decoration: const InputDecoration(
-                          labelText: 'Projekti / objekti',
-                          border: OutlineInputBorder(),
-                        ),
+                        label: 'Projekti / objekti',
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
+                      const SizedBox(height: 12),
+                      _PremiumTextField(
                         controller: noteC,
+                        label: 'Përshkrim shtesë',
                         maxLines: 3,
-                        decoration: const InputDecoration(
-                          labelText: 'Përshkrim shtesë',
-                          border: OutlineInputBorder(),
-                        ),
                       ),
                       const SizedBox(height: 14),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
                           border: Border.all(
                             color: Theme.of(context).dividerColor,
                           ),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(18),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest
+                              .withOpacity(0.30),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'Zgjedh kolonat për PDF',
-                              style: Theme.of(context).textTheme.titleSmall,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 10),
                             Wrap(
                               spacing: 8,
-                              runSpacing: 4,
+                              runSpacing: 8,
                               children: [
                                 FilterChip(
                                   label: const Text('Kodi'),
@@ -1162,8 +1225,47 @@ class _KalkuloPageState extends State<KalkuloPage> {
     );
   }
 
+  InputDecoration _inputDecoration({
+    required String label,
+    String? hint,
+    Widget? prefixIcon,
+    String? prefixText,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: prefixIcon,
+      prefixText: prefixText,
+      filled: true,
+      fillColor: Theme.of(context)
+          .colorScheme
+          .surfaceContainerHighest
+          .withOpacity(.25),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide(color: Theme.of(context).dividerColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide(
+          color: Theme.of(context).dividerColor.withOpacity(0.75),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide(
+          color: Theme.of(context).colorScheme.primary,
+          width: 1.4,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final double m2 = _toDouble(m2C.text);
 
     final double liters = _calcLiters(m2);
@@ -1197,333 +1299,886 @@ class _KalkuloPageState extends State<KalkuloPage> {
 
     final double grandTotal = materialTotalMeTvsh + laborTotal + paintTotal;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              Text(
-                'Kalkulo',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              OutlinedButton.icon(
-                onPressed: _loadAll,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Rifresko'),
-              ),
-              FilledButton.icon(
-                onPressed: () => _openProductDialog(),
-                icon: const Icon(Icons.add),
-                label: const Text('Shto produkt'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _openSelectProductsDialog,
-                icon: const Icon(Icons.playlist_add_check),
-                label: Text('Zgjedh produktet (${selectedProductIds.length})'),
-              ),
-              FilledButton.icon(
-                onPressed: _openInvoiceDialog,
-                icon: const Icon(Icons.picture_as_pdf_outlined),
-                label: const Text('Gjenero faturën'),
-              ),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            cs.surface,
+            cs.surface,
+            cs.surfaceContainerLowest.withOpacity(0.55),
+          ],
+        ),
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1500),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _HeroHeader(
+                  title: 'Kalkulo',
+                  subtitle:
+                      'Kalkulim profesional i materialit, bojës, punës dhe faturës',
+                  trailing: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _loadAll,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Rifresko'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () => _openProductDialog(),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Shto produkt'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _openSelectProductsDialog,
+                        icon: const Icon(Icons.playlist_add_check),
+                        label: Text(
+                          'Zgjedh produktet (${selectedProductIds.length})',
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _openInvoiceDialog,
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                        label: const Text('Gjenero faturën'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                if (firma.emri.isNotEmpty ||
+                    firma.description.isNotEmpty ||
+                    firma.nrTel.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: _PremiumCard(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 52,
+                            height: 52,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: cs.primary.withOpacity(0.10),
+                            ),
+                            child: Icon(
+                              Icons.business_outlined,
+                              color: cs.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  firma.emri.isEmpty ? 'Firma' : firma.emri,
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                if (firma.description.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    firma.description,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                ],
+                                if (firma.nrTel.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.phone_outlined,
+                                          size: 16),
+                                      const SizedBox(width: 6),
+                                      Text('Tel: ${firma.nrTel}'),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (p == null)
+                  const Padding(
+                    padding: EdgeInsets.all(8.0),
+                    child: Text('Duke i lexu parametrat...'),
+                  )
+                else
+                  _PremiumSectionCard(
+                    title: 'Parametrat bazë',
+                    icon: Icons.tune_outlined,
+                    child: Column(
+                      children: [
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            _SwitchChip(
+                              icon: Icons.format_paint_outlined,
+                              label: 'Ngjyrosje me bojë',
+                              value: includePaint,
+                              onChanged: (v) {
+                                setState(() {
+                                  includePaint = v;
+                                });
+                              },
+                            ),
+                            _InfoChip(
+                              icon: Icons.work_outline,
+                              label: 'Kategori pune',
+                              value: p!.laborCategory,
+                            ),
+                            if (includePaint) ...[
+                              _InfoChip(
+                                icon: Icons.water_drop_outlined,
+                                label: 'L/100m²',
+                                value: '${p!.litersPer100}',
+                              ),
+                              _InfoChip(
+                                icon: Icons.trending_down_outlined,
+                                label: 'Humbje',
+                                value: '${p!.wastePct}%',
+                              ),
+                              _InfoChip(
+                                icon: Icons.layers_outlined,
+                                label: 'Shtresa',
+                                value: '${p!.coats}',
+                              ),
+                              _InfoChip(
+                                icon: Icons.inventory_2_outlined,
+                                label: 'Kova',
+                                value: '${bucketSize.toStringAsFixed(0)}L',
+                              ),
+                              _InfoChip(
+                                icon: Icons.payments_outlined,
+                                label: 'Çmimi kove',
+                                value: eur((p!.bucketPrice).toDouble()),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 7,
+                      child: Column(
+                        children: [
+                          _PremiumSectionCard(
+                            title: 'Kalkulimi kryesor',
+                            icon: Icons.calculate_outlined,
+                            child: Wrap(
+                              spacing: 14,
+                              runSpacing: 14,
+                              children: [
+                                SizedBox(
+                                  width: 300,
+                                  child: TextField(
+                                    controller: m2C,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    decoration: _inputDecoration(
+                                      label: laborFixedValue
+                                          ? 'Sipërfaqja (m²) - vetëm për materiale'
+                                          : 'Sipërfaqja (m²)',
+                                      hint: 'p.sh. 120',
+                                      prefixIcon: const Icon(
+                                          Icons.square_foot_outlined),
+                                    ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 440,
+                                  child: DropdownButtonFormField<QmimorjaItem>(
+                                    value: selectedLabor,
+                                    items: laborItems
+                                        .map(
+                                          (x) => DropdownMenuItem<QmimorjaItem>(
+                                            value: x,
+                                            child: Text(
+                                              '${x.name} • ${eur(x.price)}/${x.unit}',
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: laborItems.isEmpty
+                                        ? null
+                                        : (v) =>
+                                            setState(() => selectedLabor = v),
+                                    decoration: _inputDecoration(
+                                      label: 'Zgjedh punën',
+                                      prefixIcon:
+                                          const Icon(Icons.handyman_outlined),
+                                    ),
+                                    borderRadius: BorderRadius.circular(18),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          _PremiumSectionCard(
+                            title: 'Puna',
+                            icon: Icons.engineering_outlined,
+                            child: Wrap(
+                              spacing: 16,
+                              runSpacing: 12,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                _SwitchChip(
+                                  icon: Icons.price_change_outlined,
+                                  label: 'Vlerë fikse për punën',
+                                  value: laborFixedValue,
+                                  onChanged: (v) {
+                                    setState(() {
+                                      laborFixedValue = v;
+                                    });
+                                  },
+                                ),
+                                if (laborFixedValue)
+                                  SizedBox(
+                                    width: 240,
+                                    child: TextField(
+                                      controller: fixedLaborC,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                        decimal: true,
+                                      ),
+                                      decoration: _inputDecoration(
+                                        label: 'Shuma fikse',
+                                        hint: 'p.sh. 300',
+                                        prefixText: '€ ',
+                                        prefixIcon: const Icon(
+                                          Icons.euro_outlined,
+                                        ),
+                                      ),
+                                      onChanged: (_) => setState(() {}),
+                                    ),
+                                  ),
+                                if (laborFixedValue)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      color: cs.primary.withOpacity(.06),
+                                      border: Border.all(
+                                        color: cs.primary.withOpacity(.18),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Kur kjo është aktive, puna nuk llogaritet me m².',
+                                      style: theme.textTheme.bodyMedium,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      flex: 6,
+                      child: _PremiumSectionCard(
+                        title: 'Përmbledhje e kalkulimit',
+                        icon: Icons.analytics_outlined,
+                        child: Wrap(
+                          spacing: 14,
+                          runSpacing: 14,
+                          children: [
+                            if (includePaint)
+                              _PaintSummaryBox(
+                                buckets: buckets,
+                                liters: liters,
+                                paintTotal: paintTotal,
+                              ),
+                            _StatPill(
+                              icon: Icons.handyman_outlined,
+                              label: laborFixedValue
+                                  ? '${p?.laborCategory ?? 'Punë'} (fikse)'
+                                  : (selectedLabor?.name ??
+                                      p?.laborCategory ??
+                                      'Punë'),
+                              value: laborFixedValue
+                                  ? eur(laborTotal)
+                                  : '${eur(laborTotal)} (${eur(laborPrice)}/${selectedLabor?.unit ?? 'm²'})',
+                            ),
+                            _StatPill(
+                              icon: Icons.widgets_outlined,
+                              label: 'Materiale pa TVSH',
+                              value: eur(materialTotalPaTvsh),
+                            ),
+                            _StatPill(
+                              icon: Icons.percent_outlined,
+                              label: 'TVSH totale',
+                              value: eur(materialTotalTvsh),
+                            ),
+                            _StatPill(
+                              icon: Icons.receipt_long_outlined,
+                              label: 'Materiale me TVSH',
+                              value: eur(materialTotalMeTvsh),
+                            ),
+                            _StatPill(
+                              icon: Icons.checklist_outlined,
+                              label: 'Produkte në kalkulim',
+                              value: '${calcProducts.length}',
+                            ),
+                            _TotalSummaryBox(
+                              total: grandTotal,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _PremiumSectionCard(
+                  title: 'Produktet e materialit',
+                  icon: Icons.inventory_2_outlined,
+                  trailing: products.isNotEmpty
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            color: cs.primary.withOpacity(0.08),
+                            border: Border.all(
+                              color: cs.primary.withOpacity(0.18),
+                            ),
+                          ),
+                          child: Text(
+                            '${products.length} produkte',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: cs.primary,
+                            ),
+                          ),
+                        )
+                      : null,
+                  child: products.isEmpty
+                      ? Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            color: theme.colorScheme.surfaceContainerHighest
+                                .withOpacity(0.25),
+                            border: Border.all(
+                              color: theme.dividerColor,
+                            ),
+                          ),
+                          child: const Text(
+                            'Nuk ka produkte. Shto produkte për kalkulim.',
+                          ),
+                        )
+                      : ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: theme.dividerColor.withOpacity(0.7),
+                              ),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Theme(
+                                data: theme.copyWith(
+                                  dividerColor: Colors.transparent,
+                                ),
+                                child: DataTable(
+                                  headingRowHeight: 56,
+                                  dataRowMinHeight: 58,
+                                  dataRowMaxHeight: 68,
+                                  columnSpacing: 24,
+                                  headingRowColor:
+                                      MaterialStateProperty.resolveWith(
+                                    (_) => cs.primary.withOpacity(0.08),
+                                  ),
+                                  columns: const [
+                                    DataColumn(label: Text('Në kalkulim')),
+                                    DataColumn(label: Text('KODI')),
+                                    DataColumn(label: Text('EMËRTIMI')),
+                                    DataColumn(label: Text('PAKO')),
+                                    DataColumn(label: Text('SASIA totale')),
+                                    DataColumn(label: Text('VLERA totale')),
+                                    DataColumn(label: Text('TVSH totale')),
+                                    DataColumn(label: Text('VLERA + TVSH')),
+                                    DataColumn(label: Text('Veprime')),
+                                  ],
+                                  rows: products.map((item) {
+                                    final isSelected = item.id != null &&
+                                        selectedProductIds.contains(item.id);
+
+                                    final double sasia = item.qtyForM2(m2);
+                                    final double vlera = item.vleraPaTvsh(m2);
+                                    final double tvsh = item.vleraTvsh(m2);
+                                    final double total = item.vleraMeTvsh(m2);
+
+                                    return DataRow(
+                                      selected: isSelected,
+                                      cells: [
+                                        DataCell(
+                                          Checkbox(
+                                            value: isSelected,
+                                            onChanged: (v) =>
+                                                _toggleSelected(item, v),
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Text(
+                                            item.kodi,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                        DataCell(
+                                          SizedBox(
+                                            width: 220,
+                                            child: Text(
+                                              item.emertimi,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ),
+                                        DataCell(Text(item.pako)),
+                                        DataCell(
+                                          Text(sasia.toStringAsFixed(2)),
+                                        ),
+                                        DataCell(Text(eur(vlera))),
+                                        DataCell(Text(eur(tvsh))),
+                                        DataCell(
+                                          Text(
+                                            eur(total),
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                        DataCell(
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                decoration: BoxDecoration(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  color: cs.primary
+                                                      .withOpacity(0.10),
+                                                ),
+                                                child: IconButton(
+                                                  tooltip: 'Ndrysho',
+                                                  onPressed: () =>
+                                                      _openProductDialog(
+                                                    item: item,
+                                                  ),
+                                                  icon: Icon(
+                                                    Icons.edit_outlined,
+                                                    color: cs.primary,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                decoration: BoxDecoration(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  color: Colors.red
+                                                      .withOpacity(0.08),
+                                                ),
+                                                child: IconButton(
+                                                  tooltip: 'Fshij',
+                                                  onPressed: () =>
+                                                      _deleteProduct(item),
+                                                  icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    color: Colors.red,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
-          if (firma.emri.isNotEmpty ||
-              firma.description.isNotEmpty ||
-              firma.nrTel.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget trailing;
+
+  const _HeroHeader({
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primary.withOpacity(0.16),
+            cs.secondary.withOpacity(0.10),
+            cs.surfaceContainerHighest.withOpacity(0.35),
+          ],
+        ),
+        border: Border.all(
+          color: cs.primary.withOpacity(0.15),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Wrap(
+        spacing: 20,
+        runSpacing: 20,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 620),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    color: cs.primary.withOpacity(0.14),
+                  ),
+                  child: Icon(
+                    Icons.calculate_rounded,
+                    size: 30,
+                    color: cs.primary,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        firma.emri.isEmpty ? 'Firma' : firma.emri,
-                        style: Theme.of(context).textTheme.titleMedium,
+                        title,
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.4,
+                        ),
                       ),
-                      if (firma.description.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(firma.description),
-                      ],
-                      if (firma.nrTel.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text('Tel: ${firma.nrTel}'),
-                      ],
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.textTheme.bodyMedium?.color
+                              ?.withOpacity(0.85),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
+              ],
             ),
-          if (p == null)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: Text('Duke i lexu parametrat...'),
-            )
-          else
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Wrap(
-                  spacing: 16,
-                  runSpacing: 8,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Checkbox(
-                          value: includePaint,
-                          onChanged: (v) {
-                            setState(() {
-                              includePaint = v ?? true;
-                            });
-                          },
-                        ),
-                        const Text('Ngjyrosje me bojë'),
-                      ],
-                    ),
-                    if (includePaint) ...[
-                      Text('L/100m²: ${p!.litersPer100}'),
-                      Text('Humbje: ${p!.wastePct}%'),
-                      Text('Shtresa: ${p!.coats}'),
-                      Text('Kova: ${bucketSize.toStringAsFixed(0)}L'),
-                      Text('Çmimi kove: ${eur((p!.bucketPrice).toDouble())}'),
-                    ],
-                    Text('Kategori pune: ${p!.laborCategory}'),
-                  ],
-                ),
-              ),
-            ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          ),
+          trailing,
+        ],
+      ),
+    );
+  }
+}
+
+class _PremiumCard extends StatelessWidget {
+  final Widget child;
+
+  const _PremiumCard({
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: cs.surface,
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withOpacity(0.7),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.045),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _PremiumSectionCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Widget child;
+  final Widget? trailing;
+
+  const _PremiumSectionCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _PremiumCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              SizedBox(
-                width: 280,
-                child: TextField(
-                  controller: m2C,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: InputDecoration(
-                    labelText: laborFixedValue
-                        ? 'Sipërfaqja (m²) - vetëm për materiale'
-                        : 'Sipërfaqja (m²)',
-                    hintText: 'p.sh. 120',
-                    border: const OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => setState(() {}),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.10),
+                ),
+                child: Icon(
+                  icon,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
               ),
-              SizedBox(
-                width: 420,
-                child: DropdownButtonFormField<QmimorjaItem>(
-                  value: selectedLabor,
-                  items: laborItems
-                      .map(
-                        (x) => DropdownMenuItem<QmimorjaItem>(
-                          value: x,
-                          child: Text(
-                            '${x.name} • ${eur(x.price)}/${x.unit}',
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: laborItems.isEmpty
-                      ? null
-                      : (v) => setState(() => selectedLabor = v),
-                  decoration: const InputDecoration(
-                    labelText: 'Zgjedh punën',
-                    border: OutlineInputBorder(),
-                  ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                 ),
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+          const SizedBox(height: 18),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _PremiumTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String? hint;
+  final int maxLines;
+  final TextInputType? keyboardType;
+  final ValueChanged<String>? onChanged;
+
+  const _PremiumTextField({
+    required this.controller,
+    required this.label,
+    this.hint,
+    this.maxLines = 1,
+    this.keyboardType,
+    this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        filled: true,
+        fillColor: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withOpacity(0.25),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(
+            color: Theme.of(context).dividerColor.withOpacity(0.75),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(18),
+          borderSide: BorderSide(
+            color: Theme.of(context).colorScheme.primary,
+            width: 1.4,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: cs.surfaceContainerHighest.withOpacity(0.28),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withOpacity(0.7),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: cs.primary),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Wrap(
-                spacing: 16,
-                runSpacing: 12,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Checkbox(
-                        value: laborFixedValue,
-                        onChanged: (v) {
-                          setState(() {
-                            laborFixedValue = v ?? false;
-                          });
-                        },
-                      ),
-                      const Text('Vlerë fikse për punën'),
-                    ],
-                  ),
-                  if (laborFixedValue)
-                    SizedBox(
-                      width: 220,
-                      child: TextField(
-                        controller: fixedLaborC,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Shuma fikse',
-                          hintText: 'p.sh. 300',
-                          border: OutlineInputBorder(),
-                          prefixText: '€ ',
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                  if (laborFixedValue)
-                    Text(
-                      'Kur kjo është aktive, puna nuk llogaritet me m².',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Wrap(
-                spacing: 16,
-                runSpacing: 12,
-                children: [
-                  if (includePaint)
-                    _PaintSummaryBox(
-                      buckets: buckets,
-                      liters: liters,
-                      paintTotal: paintTotal,
-                    ),
-                  _StatPill(
-                    icon: Icons.handyman_outlined,
-                    label: laborFixedValue
-                        ? '${p?.laborCategory ?? 'Punë'} (fikse)'
-                        : (selectedLabor?.name ?? p?.laborCategory ?? 'Punë'),
-                    value: laborFixedValue
-                        ? eur(laborTotal)
-                        : '${eur(laborTotal)} (${eur(laborPrice)}/${selectedLabor?.unit ?? 'm²'})',
-                  ),
-                  _StatPill(
-                    icon: Icons.widgets_outlined,
-                    label: 'Materiale pa TVSH',
-                    value: eur(materialTotalPaTvsh),
-                  ),
-                  _StatPill(
-                    icon: Icons.percent_outlined,
-                    label: 'TVSH totale',
-                    value: eur(materialTotalTvsh),
-                  ),
-                  _StatPill(
-                    icon: Icons.receipt_long_outlined,
-                    label: 'Materiale me TVSH',
-                    value: eur(materialTotalMeTvsh),
-                  ),
-                  _StatPill(
-                    icon: Icons.checklist_outlined,
-                    label: 'Produkte në kalkulim',
-                    value: '${calcProducts.length}',
-                  ),
-                  _TotalSummaryBox(
-                    total: grandTotal,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _SwitchChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _SwitchChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: value
+            ? cs.primary.withOpacity(0.10)
+            : cs.surfaceContainerHighest.withOpacity(0.22),
+        border: Border.all(
+          color: value
+              ? cs.primary.withOpacity(0.35)
+              : Theme.of(context).dividerColor.withOpacity(0.7),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: value ? cs.primary : null),
+          const SizedBox(width: 10),
           Text(
-            'Produktet e materialit',
-            style: Theme.of(context).textTheme.titleLarge,
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
           ),
-          const SizedBox(height: 10),
-          Card(
-            clipBehavior: Clip.antiAlias,
-            child: products.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('Nuk ka produkte. Shto produkte për kalkulim.'),
-                  )
-                : SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columnSpacing: 20,
-                      columns: const [
-                        DataColumn(label: Text('Në kalkulim')),
-                        DataColumn(label: Text('KODI')),
-                        DataColumn(label: Text('EMËRTIMI')),
-                        DataColumn(label: Text('PAKO')),
-                        DataColumn(label: Text('SASIA totale')),
-                        DataColumn(label: Text('VLERA totale')),
-                        DataColumn(label: Text('TVSH totale')),
-                        DataColumn(label: Text('VLERA + TVSH')),
-                        DataColumn(label: Text('Veprime')),
-                      ],
-                      rows: products.map((item) {
-                        final isSelected = item.id != null &&
-                            selectedProductIds.contains(item.id);
-
-                        final double sasia = item.qtyForM2(m2);
-                        final double vlera = item.vleraPaTvsh(m2);
-                        final double tvsh = item.vleraTvsh(m2);
-                        final double total = item.vleraMeTvsh(m2);
-
-                        return DataRow(
-                          selected: isSelected,
-                          cells: [
-                            DataCell(
-                              Checkbox(
-                                value: isSelected,
-                                onChanged: (v) => _toggleSelected(item, v),
-                              ),
-                            ),
-                            DataCell(Text(item.kodi)),
-                            DataCell(Text(item.emertimi)),
-                            DataCell(Text(item.pako)),
-                            DataCell(Text(sasia.toStringAsFixed(2))),
-                            DataCell(Text(eur(vlera))),
-                            DataCell(Text(eur(tvsh))),
-                            DataCell(Text(eur(total))),
-                            DataCell(
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    tooltip: 'Ndrysho',
-                                    onPressed: () =>
-                                        _openProductDialog(item: item),
-                                    icon: const Icon(Icons.edit_outlined),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Fshij',
-                                    onPressed: () => _deleteProduct(item),
-                                    icon: const Icon(Icons.delete_outline),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        );
-                      }).toList(),
-                    ),
-                  ),
+          const SizedBox(width: 10),
+          Switch(
+            value: value,
+            onChanged: onChanged,
           ),
         ],
       ),
@@ -1554,10 +2209,10 @@ class _PaintSummaryBox extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           color: Theme.of(context).cardColor.withOpacity(0.20),
           border: Border.all(
-            color: greenColor.withOpacity(0.35),
+            color: greenColor.withOpacity(0.30),
           ),
         ),
         child: Row(
@@ -1570,7 +2225,12 @@ class _PaintSummaryBox extends StatelessWidget {
               children: [
                 Text(label, style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 2),
-                Text(value, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
               ],
             ),
           ],
@@ -1579,14 +2239,19 @@ class _PaintSummaryBox extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: greenColor,
+          color: greenColor.withOpacity(0.55),
           width: 1.4,
         ),
-        color: greenColor.withOpacity(0.06),
+        gradient: LinearGradient(
+          colors: [
+            greenColor.withOpacity(0.10),
+            greenColor.withOpacity(0.04),
+          ],
+        ),
       ),
       child: Wrap(
         spacing: 12,
@@ -1622,25 +2287,30 @@ class _TotalSummaryBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const greenColor = Colors.green;
+    final cs = Theme.of(context).colorScheme;
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: greenColor,
-          width: 1.6,
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          colors: [
+            cs.primary.withOpacity(0.18),
+            cs.primary.withOpacity(0.08),
+          ],
         ),
-        color: greenColor.withOpacity(0.08),
+        border: Border.all(
+          color: cs.primary.withOpacity(0.45),
+          width: 1.5,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.calculate_outlined,
-            size: 22,
-            color: greenColor,
+            size: 24,
+            color: cs.primary,
           ),
           const SizedBox(width: 12),
           Column(
@@ -1653,7 +2323,10 @@ class _TotalSummaryBox extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 eur(total),
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: cs.primary,
+                    ),
               ),
             ],
           ),
@@ -1676,24 +2349,39 @@ class _StatPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Theme.of(context).dividerColor),
-        color: Theme.of(context).cardColor.withOpacity(0.35),
+        color: cs.surfaceContainerHighest.withOpacity(0.24),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(11),
+              color: cs.primary.withOpacity(0.10),
+            ),
+            child: Icon(icon, size: 18, color: cs.primary),
+          ),
           const SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(label, style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 2),
-              Text(value, style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
             ],
           ),
         ],

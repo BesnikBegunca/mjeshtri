@@ -42,7 +42,6 @@ class _ShellState extends State<Shell> {
     PunetPage(),
     QarkullimiVjetorPage(),
     VizatoPage(),
-    AvancatPage(),
     FirmaPage(),
   ];
 
@@ -92,11 +91,6 @@ class _ShellState extends State<Shell> {
                 icon: Icon(Icons.grading_outlined),
                 selectedIcon: Icon(Icons.draw_rounded),
                 label: Text('Skica'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.money_off_outlined),
-                selectedIcon: Icon(Icons.money_off),
-                label: Text('Avansat'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.badge_outlined),
