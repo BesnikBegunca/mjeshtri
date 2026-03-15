@@ -32,7 +32,7 @@ class AppDb {
 
     db = await openDatabase(
       path,
-      version: 9,
+      version: 10,
       onConfigure: (d) async {
         await d.execute('PRAGMA foreign_keys = ON;');
       },
@@ -132,7 +132,9 @@ class AppDb {
             clientName TEXT,
             contractAmount REAL NOT NULL DEFAULT 0,
             note TEXT,
-            createdAt TEXT NOT NULL
+            createdAt TEXT NOT NULL,
+            isCompleted INTEGER NOT NULL DEFAULT 0,
+            completedAt TEXT
           );
         ''');
 
@@ -305,6 +307,22 @@ class AppDb {
               price REAL NOT NULL DEFAULT 0
             );
           ''');
+        }
+
+        if (oldV < 10) {
+          await _safeAddColumn(
+            d,
+            'jobs',
+            'isCompleted',
+            "ALTER TABLE jobs ADD COLUMN isCompleted INTEGER NOT NULL DEFAULT 0;",
+          );
+
+          await _safeAddColumn(
+            d,
+            'jobs',
+            'completedAt',
+            "ALTER TABLE jobs ADD COLUMN completedAt TEXT;",
+          );
         }
       },
     );

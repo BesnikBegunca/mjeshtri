@@ -41,6 +41,8 @@ class JobsDao {
           contractAmount: job.contractAmount,
           note: job.note,
           createdAt: job.createdAt,
+          isCompleted: job.isCompleted,
+          completedAt: job.completedAt,
           workerEntries:
               workerMaps.map((e) => JobWorkerEntry.fromMap(e)).toList(),
           expenses: expenseMaps.map((e) => JobExpense.fromMap(e)).toList(),
@@ -59,6 +61,8 @@ class JobsDao {
       'contractAmount': job.contractAmount,
       'note': job.note,
       'createdAt': job.createdAt.toIso8601String(),
+      'isCompleted': job.isCompleted ? 1 : 0,
+      'completedAt': job.completedAt?.toIso8601String(),
     });
     return id;
   }
@@ -73,6 +77,8 @@ class JobsDao {
         'contractAmount': job.contractAmount,
         'note': job.note,
         'createdAt': job.createdAt.toIso8601String(),
+        'isCompleted': job.isCompleted ? 1 : 0,
+        'completedAt': job.completedAt?.toIso8601String(),
       },
       where: 'id = ?',
       whereArgs: [job.id],

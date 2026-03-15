@@ -5,6 +5,10 @@ class JobProject {
   double contractAmount;
   String? note;
   DateTime createdAt;
+
+  bool isCompleted;
+  DateTime? completedAt;
+
   List<JobWorkerEntry> workerEntries;
   List<JobExpense> expenses;
 
@@ -15,6 +19,8 @@ class JobProject {
     required this.contractAmount,
     this.note,
     required this.createdAt,
+    this.isCompleted = false,
+    this.completedAt,
     this.workerEntries = const [],
     this.expenses = const [],
   });
@@ -27,6 +33,8 @@ class JobProject {
       'contractAmount': contractAmount,
       'note': note,
       'createdAt': createdAt.toIso8601String(),
+      'isCompleted': isCompleted ? 1 : 0,
+      'completedAt': completedAt?.toIso8601String(),
     };
   }
 
@@ -37,7 +45,12 @@ class JobProject {
       clientName: map['clientName'] as String?,
       contractAmount: ((map['contractAmount'] ?? 0) as num).toDouble(),
       note: map['note'] as String?,
-      createdAt: DateTime.tryParse(map['createdAt'] ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse('${map['createdAt'] ?? ''}') ?? DateTime.now(),
+      isCompleted: ((map['isCompleted'] ?? 0) as num).toInt() == 1,
+      completedAt: map['completedAt'] == null
+          ? null
+          : DateTime.tryParse('${map['completedAt']}'),
       workerEntries: const [],
       expenses: const [],
     );
