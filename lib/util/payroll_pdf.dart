@@ -12,6 +12,21 @@ class PayrollPdf {
   }) async {
     final doc = pw.Document();
 
+    final double totalGross = rows.fold<double>(
+      0,
+      (sum, r) => sum + r.entry.grossSalary,
+    );
+
+    final double totalNet = rows.fold<double>(
+      0,
+      (sum, r) => sum + r.entry.netSalary,
+    );
+
+    final double totalEmployerCost = rows.fold<double>(
+      0,
+      (sum, r) => sum + r.entry.employerCost,
+    );
+
     doc.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -27,6 +42,10 @@ class PayrollPdf {
           pw.SizedBox(height: 12),
           pw.Table.fromTextArray(
             headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            cellStyle: const pw.TextStyle(fontSize: 10),
+            headerDecoration: const pw.BoxDecoration(
+              color: PdfColors.grey300,
+            ),
             headers: const [
               'Punëtori',
               'Muaji',
@@ -35,19 +54,40 @@ class PayrollPdf {
               'Kosto (firma)',
               'Shënim',
             ],
-            data: rows.map((r) {
-              final w = r.worker;
-              final e = r.entry;
+            data: [
+              ...rows.map((r) {
+                final w = r.worker;
+                final e = r.entry;
 
-              return [
-                _safe('${w.fullName} (${w.position})'),
-                _safe(e.month),
-                _money(e.grossSalary),
-                '${_money(e.netSalary)} (${_safeNum(e.employeePct)}%)',
-                '${_money(e.employerCost)} (+${_safeNum(e.employerPct)}%)',
-                _safe(e.note ?? ''),
-              ];
-            }).toList(),
+                return [
+                  _safe('${w.fullName} (${w.position})'),
+                  _safe(e.month),
+                  _money(e.grossSalary),
+                  '${_money(e.netSalary)} (${_safeNum(e.employeePct)}%)',
+                  '${_money(e.employerCost)} (+${_safeNum(e.employerPct)}%)',
+                  _safe(e.note ?? ''),
+                ];
+              }),
+              [
+                'TOTALI',
+                '',
+                _money(totalGross),
+                _money(totalNet),
+                _money(totalEmployerCost),
+                '',
+              ],
+            ],
+            rowDecoration: pw.BoxDecoration(
+              border: pw.Border(
+                bottom: pw.BorderSide(
+                  color: PdfColors.grey400,
+                  width: 0.5,
+                ),
+              ),
+            ),
+            oddRowDecoration: const pw.BoxDecoration(
+              color: PdfColors.white,
+            ),
           ),
         ],
       ),
@@ -56,17 +96,15 @@ class PayrollPdf {
     return doc.save();
   }
 
-  /// ✅ Format i sigurt për PDF (pa simbol €)
   static String _money(double v) => 'EUR ${v.toStringAsFixed(2)}';
 
-  /// ✅ Që mos me fut karaktere që s’i përkrah fonti default i PDF
   static String _safe(String s) {
     return s
         .replaceAll('€', 'EUR')
         .replaceAll('→', '->')
-        .replaceAll('–', '-') // en dash
-        .replaceAll('—', '-') // em dash
-        .replaceAll('\u00A0', ' '); // nbsp
+        .replaceAll('–', '-')
+        .replaceAll('—', '-')
+        .replaceAll('\u00A0', ' ');
   }
 
   static String _safeNum(num v) => v.toString();
