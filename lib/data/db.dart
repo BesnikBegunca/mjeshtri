@@ -32,7 +32,7 @@ class AppDb {
 
     db = await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onConfigure: (d) async {
         await d.execute('PRAGMA foreign_keys = ON;');
       },
@@ -100,6 +100,18 @@ class AppDb {
             items_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
+          );
+        ''');
+
+        await d.execute('''
+          CREATE TABLE worker_advances (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workerId INTEGER NOT NULL,
+            month TEXT NOT NULL,
+            amount REAL NOT NULL DEFAULT 0,
+            note TEXT,
+            createdAt TEXT NOT NULL,
+            FOREIGN KEY(workerId) REFERENCES workers(id) ON DELETE CASCADE
           );
         ''');
 
@@ -179,6 +191,20 @@ class AppDb {
               items_json TEXT NOT NULL DEFAULT '[]',
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
+            );
+          ''');
+        }
+
+        if (oldV < 7) {
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS worker_advances (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workerId INTEGER NOT NULL,
+              month TEXT NOT NULL,
+              amount REAL NOT NULL DEFAULT 0,
+              note TEXT,
+              createdAt TEXT NOT NULL,
+              FOREIGN KEY(workerId) REFERENCES workers(id) ON DELETE CASCADE
             );
           ''');
         }

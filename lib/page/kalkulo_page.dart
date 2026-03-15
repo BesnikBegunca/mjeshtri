@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+
 import '../data/dao_calc_products.dart';
 import '../data/dao_parameters.dart';
 import '../data/dao_prices.dart';
@@ -97,6 +101,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
         .where((x) => x.id != null && selectedProductIds.contains(x.id))
         .toList();
   }
+
+  String _invoiceMoney(num value) => '${value.toStringAsFixed(2)} EURO';
 
   void _toggleSelected(ProductCalcItem item, bool? checked) {
     if (item.id == null) return;
@@ -455,6 +461,478 @@ class _KalkuloPageState extends State<KalkuloPage> {
     }
   }
 
+  Future<void> _openInvoiceDialog() async {
+    final m2 = _toDouble(m2C.text);
+    final selectedProducts = _selectedProducts;
+
+    if (m2 <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Shkruaje sipërfaqen (m²) para gjenerimit të faturës.'),
+        ),
+      );
+      return;
+    }
+
+    if (selectedProducts.isEmpty && !includePaint && selectedLabor == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nuk ka asgjë për me gjeneru në faturë.'),
+        ),
+      );
+      return;
+    }
+
+    final invoiceNoC = TextEditingController(
+      text:
+          'F-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+    );
+    final clientC = TextEditingController();
+    final projectC = TextEditingController();
+    final noteC = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Gjenero faturën'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextField(
+                  controller: invoiceNoC,
+                  decoration: const InputDecoration(
+                    labelText: 'Nr. faturës',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: clientC,
+                  decoration: const InputDecoration(
+                    labelText: 'Klienti',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: projectC,
+                  decoration: const InputDecoration(
+                    labelText: 'Projekti / objekti',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: noteC,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Përshkrim shtesë',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Anulo'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _generateInvoicePdf(
+                invoiceNo: invoiceNoC.text.trim(),
+                clientName: clientC.text.trim(),
+                projectName: projectC.text.trim(),
+                note: noteC.text.trim(),
+              );
+            },
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('Gjenero PDF'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _generateInvoicePdf({
+    required String invoiceNo,
+    required String clientName,
+    required String projectName,
+    required String note,
+  }) async {
+    try {
+      final double m2 = _toDouble(m2C.text);
+
+      final double liters = _calcLiters(m2);
+      final int buckets = _calcBuckets(liters);
+
+      final double bucketPrice =
+          includePaint ? (p?.bucketPrice ?? 0).toDouble() : 0.0;
+      final double paintTotal = buckets * bucketPrice;
+
+      final double laborPrice = (selectedLabor?.price ?? 0).toDouble();
+      final double fixedLaborValue = _toDouble(fixedLaborC.text);
+      final double laborTotal =
+          laborFixedValue ? fixedLaborValue : (m2 * laborPrice);
+
+      final calcProducts = _selectedProducts;
+
+      final double materialTotalPaTvsh = calcProducts.fold<double>(
+        0.0,
+        (sum, x) => sum + x.vleraPaTvsh(m2),
+      );
+
+      final double materialTotalTvsh = calcProducts.fold<double>(
+        0.0,
+        (sum, x) => sum + x.vleraTvsh(m2),
+      );
+
+      final double materialTotalMeTvsh = calcProducts.fold<double>(
+        0.0,
+        (sum, x) => sum + x.vleraMeTvsh(m2),
+      );
+
+      final double grandTotal = materialTotalMeTvsh + laborTotal + paintTotal;
+
+      final pdf = pw.Document();
+
+      String today() {
+        final d = DateTime.now();
+        final dd = d.day.toString().padLeft(2, '0');
+        final mm = d.month.toString().padLeft(2, '0');
+        final yy = d.year.toString();
+        return '$dd.$mm.$yy';
+      }
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (context) => [
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'FATURË',
+                      style: pw.TextStyle(
+                        fontSize: 24,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                        'Nr. faturës: ${invoiceNo.isEmpty ? "-" : invoiceNo}'),
+                    pw.Text('Data: ${today()}'),
+                  ],
+                ),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.end,
+                  children: [
+                    pw.Text(
+                      'Mjeshtri',
+                      style: pw.TextStyle(
+                        fontSize: 18,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.Text('Kalkulim & Faturim'),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 18),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(12),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.grey400),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+              ),
+              child: pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Klienti',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                        ),
+                        pw.SizedBox(height: 4),
+                        pw.Text(clientName.isEmpty ? '-' : clientName),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 16),
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          'Projekti / objekti',
+                          style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                        ),
+                        pw.SizedBox(height: 4),
+                        pw.Text(projectName.isEmpty ? '-' : projectName),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            pw.SizedBox(height: 18),
+            pw.Text(
+              'Përmbledhje',
+              style: pw.TextStyle(
+                fontSize: 15,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _pdfInfoBox('Sipërfaqja', '${m2.toStringAsFixed(2)} m²'),
+                _pdfInfoBox(
+                    'Materiale pa TVSH', _invoiceMoney(materialTotalPaTvsh)),
+                _pdfInfoBox('TVSH materiale', _invoiceMoney(materialTotalTvsh)),
+                _pdfInfoBox(
+                    'Materiale me TVSH', _invoiceMoney(materialTotalMeTvsh)),
+                _pdfInfoBox('Puna', _invoiceMoney(laborTotal)),
+                if (includePaint)
+                  _pdfInfoBox('Bojë', _invoiceMoney(paintTotal)),
+              ],
+            ),
+            pw.SizedBox(height: 18),
+            pw.Text(
+              'Artikujt e faturës',
+              style: pw.TextStyle(
+                fontSize: 15,
+                fontWeight: pw.FontWeight.bold,
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Table(
+              border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.7),
+              columnWidths: {
+                0: const pw.FlexColumnWidth(1.5),
+                1: const pw.FlexColumnWidth(3.2),
+                2: const pw.FlexColumnWidth(1.6),
+                3: const pw.FlexColumnWidth(1.6),
+                4: const pw.FlexColumnWidth(1.8),
+                5: const pw.FlexColumnWidth(1.8),
+              },
+              children: [
+                pw.TableRow(
+                  decoration: const pw.BoxDecoration(
+                    color: PdfColors.grey200,
+                  ),
+                  children: [
+                    _pdfCell('Kodi', bold: true),
+                    _pdfCell('Përshkrimi', bold: true),
+                    _pdfCell('Sasia', bold: true),
+                    _pdfCell('Vlera', bold: true),
+                    _pdfCell('TVSH', bold: true),
+                    _pdfCell('Gjithsej', bold: true),
+                  ],
+                ),
+                ...calcProducts.map((item) {
+                  final qty = item.qtyForM2(m2);
+                  final value = item.vleraPaTvsh(m2);
+                  final vat = item.vleraTvsh(m2);
+                  final total = item.vleraMeTvsh(m2);
+
+                  return pw.TableRow(
+                    children: [
+                      _pdfCell(item.kodi),
+                      _pdfCell('${item.emertimi}\n${item.pako}'),
+                      _pdfCell(qty.toStringAsFixed(2)),
+                      _pdfCell(_invoiceMoney(value)),
+                      _pdfCell(_invoiceMoney(vat)),
+                      _pdfCell(_invoiceMoney(total)),
+                    ],
+                  );
+                }),
+                pw.TableRow(
+                  children: [
+                    _pdfCell(''),
+                    _pdfCell(
+                      laborFixedValue
+                          ? '${p?.laborCategory ?? 'Punë'} (vlerë fikse)'
+                          : (selectedLabor?.name ?? p?.laborCategory ?? 'Punë'),
+                    ),
+                    _pdfCell(
+                      laborFixedValue ? '1.00' : '${m2.toStringAsFixed(2)} m²',
+                    ),
+                    _pdfCell(_invoiceMoney(laborTotal)),
+                    _pdfCell('-'),
+                    _pdfCell(_invoiceMoney(laborTotal)),
+                  ],
+                ),
+                if (includePaint)
+                  pw.TableRow(
+                    children: [
+                      _pdfCell('BOJE'),
+                      _pdfCell(
+                        'Bojë (${buckets.toString()} kova / ${liters.toStringAsFixed(2)} L)',
+                      ),
+                      _pdfCell('$buckets'),
+                      _pdfCell(_invoiceMoney(paintTotal)),
+                      _pdfCell('-'),
+                      _pdfCell(_invoiceMoney(paintTotal)),
+                    ],
+                  ),
+              ],
+            ),
+            pw.SizedBox(height: 18),
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Container(
+                width: 240,
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.black, width: 1),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                        'Materiale pa TVSH: ${_invoiceMoney(materialTotalPaTvsh)}'),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                        'TVSH materiale: ${_invoiceMoney(materialTotalTvsh)}'),
+                    pw.SizedBox(height: 4),
+                    pw.Text('Puna: ${_invoiceMoney(laborTotal)}'),
+                    if (includePaint) ...[
+                      pw.SizedBox(height: 4),
+                      pw.Text('Bojë: ${_invoiceMoney(paintTotal)}'),
+                    ],
+                    pw.Divider(),
+                    pw.Text(
+                      'TOTALI FINAL: ${_invoiceMoney(grandTotal)}',
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (note.isNotEmpty) ...[
+              pw.SizedBox(height: 18),
+              pw.Text(
+                'Shënim',
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey400),
+                  borderRadius:
+                      const pw.BorderRadius.all(pw.Radius.circular(6)),
+                ),
+                child: pw.Text(note),
+              ),
+            ],
+            pw.SizedBox(height: 30),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Column(
+                  children: [
+                    pw.Container(
+                        width: 180, height: 1, color: PdfColors.grey600),
+                    pw.SizedBox(height: 4),
+                    pw.Text('Nënshkrimi'),
+                  ],
+                ),
+                pw.Column(
+                  children: [
+                    pw.Container(
+                        width: 180, height: 1, color: PdfColors.grey600),
+                    pw.SizedBox(height: 4),
+                    pw.Text('Pranuesi'),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      await Printing.layoutPdf(
+        name:
+            'fatura_${invoiceNo.isEmpty ? DateTime.now().millisecondsSinceEpoch : invoiceNo}.pdf',
+        onLayout: (format) async => pdf.save(),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gabim gjatë gjenerimit të faturës: $e')),
+      );
+    }
+  }
+
+  static pw.Widget _pdfInfoBox(String label, String value) {
+    return pw.Container(
+      width: 160,
+      padding: const pw.EdgeInsets.all(10),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey400),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            label,
+            style: pw.TextStyle(
+              fontSize: 10,
+              color: PdfColors.grey700,
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: 12,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _pdfCell(String text, {bool bold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(6),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: 10,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double m2 = _toDouble(m2C.text);
@@ -519,6 +997,11 @@ class _KalkuloPageState extends State<KalkuloPage> {
                 icon: const Icon(Icons.playlist_add_check),
                 label: Text('Zgjedh produktet (${selectedProductIds.length})'),
               ),
+              FilledButton.icon(
+                onPressed: _openInvoiceDialog,
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('Gjenero faturën'),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -546,7 +1029,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                             });
                           },
                         ),
-                        const Text('Me ly'),
+                        const Text('Ngjyrosje me bojë'),
                       ],
                     ),
                     if (includePaint) ...[
@@ -677,7 +1160,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                         : (p?.laborCategory ?? 'Punë'),
                     value: laborFixedValue
                         ? eur(laborTotal)
-                        : '${eur(laborTotal)} (${eur(laborPrice)}/m²)',
+                        : '${eur(laborTotal)} (${eur(laborPrice)}/${selectedLabor?.unit ?? 'm²'})',
                   ),
                   _StatPill(
                     icon: Icons.widgets_outlined,
