@@ -32,7 +32,7 @@ class AppDb {
 
     db = await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onConfigure: (d) async {
         await d.execute('PRAGMA foreign_keys = ON;');
       },
@@ -55,6 +55,16 @@ class AppDb {
             name TEXT NOT NULL,
             unit TEXT NOT NULL,
             price REAL NOT NULL
+          );
+        ''');
+
+        await d.execute('''
+          CREATE TABLE qmimorja_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,
+            name TEXT NOT NULL,
+            unit TEXT NOT NULL,
+            price REAL NOT NULL DEFAULT 0
           );
         ''');
 
@@ -115,7 +125,6 @@ class AppDb {
           );
         ''');
 
-        // JOBS
         await d.execute('''
           CREATE TABLE jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,6 +291,18 @@ class AppDb {
               amount REAL NOT NULL DEFAULT 0,
               note TEXT,
               FOREIGN KEY(jobId) REFERENCES jobs(id) ON DELETE CASCADE
+            );
+          ''');
+        }
+
+        if (oldV < 9) {
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS qmimorja_items (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              category TEXT NOT NULL,
+              name TEXT NOT NULL,
+              unit TEXT NOT NULL,
+              price REAL NOT NULL DEFAULT 0
             );
           ''');
         }

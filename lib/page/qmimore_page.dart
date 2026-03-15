@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../data/dao_prices.dart';
-import '../models/price_item.dart';
+import '../data/dao_qmimorja.dart';
+import '../models/qmimorja_item.dart';
 import '../util/format.dart';
 
 class QmimorePage extends StatefulWidget {
@@ -12,7 +12,7 @@ class QmimorePage extends StatefulWidget {
 
 class _QmimorePageState extends State<QmimorePage> {
   bool loading = true;
-  List<PriceItem> items = [];
+  List<QmimorjaItem> items = [];
 
   @override
   void initState() {
@@ -22,15 +22,19 @@ class _QmimorePageState extends State<QmimorePage> {
 
   Future<void> _load() async {
     setState(() => loading = true);
-    items = await PricesDao.I.list();
-    setState(() => loading = false);
+    items = await QmimorjaDao.I.list();
+    if (mounted) {
+      setState(() => loading = false);
+    }
   }
 
-  Future<void> _openEditor({PriceItem? item}) async {
+  Future<void> _openEditor({QmimorjaItem? item}) async {
     final catC = TextEditingController(text: item?.category ?? 'Punë dore');
     final nameC = TextEditingController(text: item?.name ?? '');
     final unitC = TextEditingController(text: item?.unit ?? 'm²');
-    final priceC = TextEditingController(text: item?.price.toStringAsFixed(2) ?? '0');
+    final priceC = TextEditingController(
+      text: item != null ? item.price.toStringAsFixed(2) : '0',
+    );
 
     final ok = await showDialog<bool>(
       context: context,
@@ -43,12 +47,18 @@ class _QmimorePageState extends State<QmimorePage> {
             children: [
               TextField(
                 controller: catC,
-                decoration: const InputDecoration(labelText: 'Kategoria', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Kategoria',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: nameC,
-                decoration: const InputDecoration(labelText: 'Emri', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Emri',
+                  border: OutlineInputBorder(),
+                ),
               ),
               const SizedBox(height: 12),
               Row(
@@ -56,14 +66,22 @@ class _QmimorePageState extends State<QmimorePage> {
                   Expanded(
                     child: TextField(
                       controller: unitC,
-                      decoration: const InputDecoration(labelText: 'Njësia (p.sh. m²)', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Njësia (p.sh. m²)',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextField(
                       controller: priceC,
-                      decoration: const InputDecoration(labelText: 'Çmimi (€)', border: OutlineInputBorder()),
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'Çmimi (€)',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
                 ],
@@ -72,22 +90,32 @@ class _QmimorePageState extends State<QmimorePage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Anulo')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Ruaj')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Anulo'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Ruaj'),
+          ),
         ],
       ),
     );
 
-    if (ok != true) return;
-
     final category = catC.text.trim().isEmpty ? 'Tjetër' : catC.text.trim();
     final name = nameC.text.trim();
     final unit = unitC.text.trim().isEmpty ? 'm²' : unitC.text.trim();
-    final price = double.tryParse(priceC.text.replaceAll(',', '.')) ?? 0;
+    final price = double.tryParse(priceC.text.trim().replaceAll(',', '.')) ?? 0;
 
+    catC.dispose();
+    nameC.dispose();
+    unitC.dispose();
+    priceC.dispose();
+
+    if (ok != true) return;
     if (name.isEmpty) return;
 
-    final model = PriceItem(
+    final model = QmimorjaItem(
       id: item?.id,
       category: category,
       name: name,
@@ -96,28 +124,34 @@ class _QmimorePageState extends State<QmimorePage> {
     );
 
     if (item == null) {
-      await PricesDao.I.insert(model);
+      await QmimorjaDao.I.insert(model);
     } else {
-      await PricesDao.I.update(model);
+      await QmimorjaDao.I.update(model);
     }
+
     await _load();
   }
 
   Future<void> _delete(int id) async {
-    await PricesDao.I.delete(id);
+    await QmimorjaDao.I.delete(id);
     await _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (loading) return const Center(child: CircularProgressIndicator());
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Text('Qmimore', style: Theme.of(context).textTheme.headlineMedium),
+            Text(
+              'Qmimore',
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
             const Spacer(),
             ElevatedButton.icon(
               onPressed: () => _openEditor(),
@@ -149,8 +183,14 @@ class _QmimorePageState extends State<QmimorePage> {
                       DataCell(
                         Row(
                           children: [
-                            IconButton(onPressed: () => _openEditor(item: e), icon: const Icon(Icons.edit)),
-                            IconButton(onPressed: () => _delete(e.id!), icon: const Icon(Icons.delete_outline)),
+                            IconButton(
+                              onPressed: () => _openEditor(item: e),
+                              icon: const Icon(Icons.edit),
+                            ),
+                            IconButton(
+                              onPressed: () => _delete(e.id!),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
                           ],
                         ),
                       ),

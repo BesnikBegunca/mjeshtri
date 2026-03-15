@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mjeshtri/page/avancat_page.dart';
+import 'package:mjeshtri/page/firma_page.dart';
 import 'package:mjeshtri/page/kalkulo_page.dart';
 import 'package:mjeshtri/page/parametrat_page.dart';
 import 'package:mjeshtri/page/punet_page.dart';
@@ -42,6 +43,7 @@ class _ShellState extends State<Shell> {
     QarkullimiVjetorPage(),
     VizatoPage(),
     AvancatPage(),
+    FirmaPage(),
   ];
 
   @override
@@ -95,6 +97,11 @@ class _ShellState extends State<Shell> {
                 icon: Icon(Icons.money_off_outlined),
                 selectedIcon: Icon(Icons.money_off),
                 label: Text('Avansat'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.badge_outlined),
+                selectedIcon: Icon(Icons.badge),
+                label: Text('Firma'),
               ),
             ],
           ),

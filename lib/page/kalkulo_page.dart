@@ -4,11 +4,13 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../data/dao_calc_products.dart';
+import '../data/dao_firma.dart';
 import '../data/dao_parameters.dart';
-import '../data/dao_prices.dart';
+import '../data/dao_qmimorja.dart';
+import '../models/firma_info.dart';
 import '../models/parameters.dart';
-import '../models/price_item.dart';
 import '../models/product_calc_item.dart';
+import '../models/qmimorja_item.dart';
 import '../util/format.dart';
 
 class KalkuloPage extends StatefulWidget {
@@ -23,8 +25,10 @@ class _KalkuloPageState extends State<KalkuloPage> {
   final fixedLaborC = TextEditingController();
 
   Parameters? p;
-  List<PriceItem> laborItems = [];
-  PriceItem? selectedLabor;
+  FirmaInfo firma = FirmaInfo.empty();
+
+  List<QmimorjaItem> laborItems = [];
+  QmimorjaItem? selectedLabor;
 
   List<ProductCalcItem> products = [];
   final Set<int> selectedProductIds = {};
@@ -50,17 +54,33 @@ class _KalkuloPageState extends State<KalkuloPage> {
   Future<void> _loadAll() async {
     try {
       p = await ParametersDao.I.get();
+      firma = await FirmaDao.I.get();
 
-      final allPrices = await PricesDao.I.list();
-      final cat = p?.laborCategory ?? 'Punë dore';
+      final allPrices = await QmimorjaDao.I.list();
+      final cat = (p?.laborCategory ?? 'Punë dore').trim().toLowerCase();
 
-      laborItems = allPrices.where((x) => x.category == cat).toList();
+      laborItems = allPrices.where((x) {
+        return x.category.trim().toLowerCase() == cat;
+      }).toList();
 
       if (laborItems.isNotEmpty) {
-        selectedLabor = laborItems.firstWhere(
-          (x) => x.unit.toLowerCase().contains('m'),
-          orElse: () => laborItems.first,
-        );
+        final currentId = selectedLabor?.id;
+
+        if (currentId != null) {
+          try {
+            selectedLabor = laborItems.firstWhere((x) => x.id == currentId);
+          } catch (_) {
+            selectedLabor = laborItems.firstWhere(
+              (x) => x.unit.toLowerCase().contains('m'),
+              orElse: () => laborItems.first,
+            );
+          }
+        } else {
+          selectedLabor = laborItems.firstWhere(
+            (x) => x.unit.toLowerCase().contains('m'),
+            orElse: () => laborItems.first,
+          );
+        }
       } else {
         selectedLabor = null;
       }
@@ -333,7 +353,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                                'Sasia/100m²: ${sasiaPer100.toStringAsFixed(2)}'),
+                              'Sasia/100m²: ${sasiaPer100.toStringAsFixed(2)}',
+                            ),
                             Text('Vlera/100m²: ${eur(vleraPer100)}'),
                             Text('TVSH/100m²: ${eur(tvshPer100)}'),
                             const Divider(),
@@ -343,7 +364,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                                'Sasia totale: ${sasiaTotale.toStringAsFixed(2)}'),
+                              'Sasia totale: ${sasiaTotale.toStringAsFixed(2)}',
+                            ),
                             Text('Vlera totale: ${eur(vleraTotale)}'),
                             Text('TVSH totale: ${eur(tvshTotale)}'),
                             const Divider(),
@@ -491,71 +513,195 @@ class _KalkuloPageState extends State<KalkuloPage> {
     final projectC = TextEditingController();
     final noteC = TextEditingController();
 
+    bool showCode = true;
+    bool showName = true;
+    bool showPack = false;
+    bool showQty = true;
+    bool showValue = true;
+    bool showVat = true;
+    bool showTotal = true;
+
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Gjenero faturën'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                TextField(
-                  controller: invoiceNoC,
-                  decoration: const InputDecoration(
-                    labelText: 'Nr. faturës',
-                    border: OutlineInputBorder(),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocalState) {
+            final selectedCols = [
+              showCode,
+              showName,
+              showPack,
+              showQty,
+              showValue,
+              showVat,
+              showTotal,
+            ].where((e) => e).length;
+
+            return AlertDialog(
+              title: const Text('Gjenero faturën'),
+              content: SizedBox(
+                width: 560,
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: invoiceNoC,
+                        decoration: const InputDecoration(
+                          labelText: 'Nr. faturës',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: clientC,
+                        decoration: const InputDecoration(
+                          labelText: 'Klienti',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: projectC,
+                        decoration: const InputDecoration(
+                          labelText: 'Projekti / objekti',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: noteC,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Përshkrim shtesë',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Zgjedh kolonat për PDF',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                FilterChip(
+                                  label: const Text('Kodi'),
+                                  selected: showCode,
+                                  onSelected: (v) =>
+                                      setLocalState(() => showCode = v),
+                                ),
+                                FilterChip(
+                                  label: const Text('Emri'),
+                                  selected: showName,
+                                  onSelected: (v) =>
+                                      setLocalState(() => showName = v),
+                                ),
+                                FilterChip(
+                                  label: const Text('Pako'),
+                                  selected: showPack,
+                                  onSelected: (v) =>
+                                      setLocalState(() => showPack = v),
+                                ),
+                                FilterChip(
+                                  label: const Text('Sasia'),
+                                  selected: showQty,
+                                  onSelected: (v) =>
+                                      setLocalState(() => showQty = v),
+                                ),
+                                FilterChip(
+                                  label: const Text('Vlera'),
+                                  selected: showValue,
+                                  onSelected: (v) =>
+                                      setLocalState(() => showValue = v),
+                                ),
+                                FilterChip(
+                                  label: const Text('TVSH'),
+                                  selected: showVat,
+                                  onSelected: (v) =>
+                                      setLocalState(() => showVat = v),
+                                ),
+                                FilterChip(
+                                  label: const Text('Gjithsej'),
+                                  selected: showTotal,
+                                  onSelected: (v) =>
+                                      setLocalState(() => showTotal = v),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Kolona të zgjedhura: $selectedCols',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: clientC,
-                  decoration: const InputDecoration(
-                    labelText: 'Klienti',
-                    border: OutlineInputBorder(),
-                  ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Anulo'),
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: projectC,
-                  decoration: const InputDecoration(
-                    labelText: 'Projekti / objekti',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: noteC,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Përshkrim shtesë',
-                    border: OutlineInputBorder(),
-                  ),
+                FilledButton.icon(
+                  onPressed: () async {
+                    final hasAnyColumn = showCode ||
+                        showName ||
+                        showPack ||
+                        showQty ||
+                        showValue ||
+                        showVat ||
+                        showTotal;
+
+                    if (!hasAnyColumn) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Zgjedhe të paktën një kolonë për printim.',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.pop(ctx);
+                    await _generateInvoicePdf(
+                      invoiceNo: invoiceNoC.text.trim(),
+                      clientName: clientC.text.trim(),
+                      projectName: projectC.text.trim(),
+                      note: noteC.text.trim(),
+                      showCode: showCode,
+                      showName: showName,
+                      showPack: showPack,
+                      showQty: showQty,
+                      showValue: showValue,
+                      showVat: showVat,
+                      showTotal: showTotal,
+                    );
+                  },
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('Gjenero PDF'),
                 ),
               ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Anulo'),
-          ),
-          FilledButton.icon(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _generateInvoicePdf(
-                invoiceNo: invoiceNoC.text.trim(),
-                clientName: clientC.text.trim(),
-                projectName: projectC.text.trim(),
-                note: noteC.text.trim(),
-              );
-            },
-            icon: const Icon(Icons.picture_as_pdf_outlined),
-            label: const Text('Gjenero PDF'),
-          ),
-        ],
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -564,6 +710,13 @@ class _KalkuloPageState extends State<KalkuloPage> {
     required String clientName,
     required String projectName,
     required String note,
+    required bool showCode,
+    required bool showName,
+    required bool showPack,
+    required bool showQty,
+    required bool showValue,
+    required bool showVat,
+    required bool showTotal,
   }) async {
     try {
       final double m2 = _toDouble(m2C.text);
@@ -609,6 +762,63 @@ class _KalkuloPageState extends State<KalkuloPage> {
         return '$dd.$mm.$yy';
       }
 
+      final headers = <String>[];
+      if (showCode) headers.add('Kodi');
+      if (showName) headers.add('Përshkrimi');
+      if (showPack) headers.add('Pako');
+      if (showQty) headers.add('Sasia');
+      if (showValue) headers.add('Vlera');
+      if (showVat) headers.add('TVSH');
+      if (showTotal) headers.add('Gjithsej');
+
+      final columnWidths = <int, pw.TableColumnWidth>{};
+      int colIndex = 0;
+
+      if (showCode) {
+        columnWidths[colIndex++] = const pw.FlexColumnWidth(1.4);
+      }
+      if (showName) {
+        columnWidths[colIndex++] = const pw.FlexColumnWidth(3.4);
+      }
+      if (showPack) {
+        columnWidths[colIndex++] = const pw.FlexColumnWidth(1.6);
+      }
+      if (showQty) {
+        columnWidths[colIndex++] = const pw.FlexColumnWidth(1.5);
+      }
+      if (showValue) {
+        columnWidths[colIndex++] = const pw.FlexColumnWidth(1.7);
+      }
+      if (showVat) {
+        columnWidths[colIndex++] = const pw.FlexColumnWidth(1.7);
+      }
+      if (showTotal) {
+        columnWidths[colIndex++] = const pw.FlexColumnWidth(1.8);
+      }
+
+      List<pw.Widget> buildCells({
+        String? code,
+        String? name,
+        String? pack,
+        String? qty,
+        String? value,
+        String? vat,
+        String? total,
+        bool bold = false,
+      }) {
+        final cells = <pw.Widget>[];
+
+        if (showCode) cells.add(_pdfCell(code ?? '', bold: bold));
+        if (showName) cells.add(_pdfCell(name ?? '', bold: bold));
+        if (showPack) cells.add(_pdfCell(pack ?? '', bold: bold));
+        if (showQty) cells.add(_pdfCell(qty ?? '', bold: bold));
+        if (showValue) cells.add(_pdfCell(value ?? '', bold: bold));
+        if (showVat) cells.add(_pdfCell(vat ?? '', bold: bold));
+        if (showTotal) cells.add(_pdfCell(total ?? '', bold: bold));
+
+        return cells;
+      }
+
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
@@ -630,7 +840,8 @@ class _KalkuloPageState extends State<KalkuloPage> {
                     ),
                     pw.SizedBox(height: 6),
                     pw.Text(
-                        'Nr. faturës: ${invoiceNo.isEmpty ? "-" : invoiceNo}'),
+                      'Nr. faturës: ${invoiceNo.isEmpty ? "-" : invoiceNo}',
+                    ),
                     pw.Text('Data: ${today()}'),
                   ],
                 ),
@@ -638,13 +849,29 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   crossAxisAlignment: pw.CrossAxisAlignment.end,
                   children: [
                     pw.Text(
-                      'Mjeshtri',
+                      firma.emri.isEmpty ? 'Emri i firmës' : firma.emri,
+                      textAlign: pw.TextAlign.right,
                       style: pw.TextStyle(
                         fontSize: 18,
                         fontWeight: pw.FontWeight.bold,
                       ),
                     ),
-                    pw.Text('Kalkulim & Faturim'),
+                    if (firma.description.isNotEmpty)
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.only(top: 4),
+                        child: pw.Text(
+                          firma.description,
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
+                    if (firma.nrTel.isNotEmpty)
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.only(top: 4),
+                        child: pw.Text(
+                          'Tel: ${firma.nrTel}',
+                          textAlign: pw.TextAlign.right,
+                        ),
+                      ),
                   ],
                 ),
               ],
@@ -704,10 +931,17 @@ class _KalkuloPageState extends State<KalkuloPage> {
               children: [
                 _pdfInfoBox('Sipërfaqja', '${m2.toStringAsFixed(2)} m²'),
                 _pdfInfoBox(
-                    'Materiale pa TVSH', _invoiceMoney(materialTotalPaTvsh)),
-                _pdfInfoBox('TVSH materiale', _invoiceMoney(materialTotalTvsh)),
+                  'Materiale pa TVSH',
+                  _invoiceMoney(materialTotalPaTvsh),
+                ),
                 _pdfInfoBox(
-                    'Materiale me TVSH', _invoiceMoney(materialTotalMeTvsh)),
+                  'TVSH materiale',
+                  _invoiceMoney(materialTotalTvsh),
+                ),
+                _pdfInfoBox(
+                  'Materiale me TVSH',
+                  _invoiceMoney(materialTotalMeTvsh),
+                ),
                 _pdfInfoBox('Puna', _invoiceMoney(laborTotal)),
                 if (includePaint)
                   _pdfInfoBox('Bojë', _invoiceMoney(paintTotal)),
@@ -724,27 +958,14 @@ class _KalkuloPageState extends State<KalkuloPage> {
             pw.SizedBox(height: 8),
             pw.Table(
               border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.7),
-              columnWidths: {
-                0: const pw.FlexColumnWidth(1.5),
-                1: const pw.FlexColumnWidth(3.2),
-                2: const pw.FlexColumnWidth(1.6),
-                3: const pw.FlexColumnWidth(1.6),
-                4: const pw.FlexColumnWidth(1.8),
-                5: const pw.FlexColumnWidth(1.8),
-              },
+              columnWidths: columnWidths,
               children: [
                 pw.TableRow(
                   decoration: const pw.BoxDecoration(
                     color: PdfColors.grey200,
                   ),
-                  children: [
-                    _pdfCell('Kodi', bold: true),
-                    _pdfCell('Përshkrimi', bold: true),
-                    _pdfCell('Sasia', bold: true),
-                    _pdfCell('Vlera', bold: true),
-                    _pdfCell('TVSH', bold: true),
-                    _pdfCell('Gjithsej', bold: true),
-                  ],
+                  children:
+                      headers.map((h) => _pdfCell(h, bold: true)).toList(),
                 ),
                 ...calcProducts.map((item) {
                   final qty = item.qtyForM2(m2);
@@ -753,44 +974,44 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   final total = item.vleraMeTvsh(m2);
 
                   return pw.TableRow(
-                    children: [
-                      _pdfCell(item.kodi),
-                      _pdfCell('${item.emertimi}\n${item.pako}'),
-                      _pdfCell(qty.toStringAsFixed(2)),
-                      _pdfCell(_invoiceMoney(value)),
-                      _pdfCell(_invoiceMoney(vat)),
-                      _pdfCell(_invoiceMoney(total)),
-                    ],
+                    children: buildCells(
+                      code: item.kodi,
+                      name: item.emertimi,
+                      pack: item.pako,
+                      qty: qty.toStringAsFixed(2),
+                      value: _invoiceMoney(value),
+                      vat: _invoiceMoney(vat),
+                      total: _invoiceMoney(total),
+                    ),
                   );
                 }),
                 pw.TableRow(
-                  children: [
-                    _pdfCell(''),
-                    _pdfCell(
-                      laborFixedValue
-                          ? '${p?.laborCategory ?? 'Punë'} (vlerë fikse)'
-                          : (selectedLabor?.name ?? p?.laborCategory ?? 'Punë'),
-                    ),
-                    _pdfCell(
-                      laborFixedValue ? '1.00' : '${m2.toStringAsFixed(2)} m²',
-                    ),
-                    _pdfCell(_invoiceMoney(laborTotal)),
-                    _pdfCell('-'),
-                    _pdfCell(_invoiceMoney(laborTotal)),
-                  ],
+                  children: buildCells(
+                    code: '',
+                    name: laborFixedValue
+                        ? '${p?.laborCategory ?? 'Punë'} (vlerë fikse)'
+                        : (selectedLabor?.name ?? p?.laborCategory ?? 'Punë'),
+                    pack: '',
+                    qty: laborFixedValue
+                        ? '1.00'
+                        : '${m2.toStringAsFixed(2)} m²',
+                    value: _invoiceMoney(laborTotal),
+                    vat: '-',
+                    total: _invoiceMoney(laborTotal),
+                  ),
                 ),
                 if (includePaint)
                   pw.TableRow(
-                    children: [
-                      _pdfCell('BOJE'),
-                      _pdfCell(
-                        'Bojë (${buckets.toString()} kova / ${liters.toStringAsFixed(2)} L)',
-                      ),
-                      _pdfCell('$buckets'),
-                      _pdfCell(_invoiceMoney(paintTotal)),
-                      _pdfCell('-'),
-                      _pdfCell(_invoiceMoney(paintTotal)),
-                    ],
+                    children: buildCells(
+                      code: 'BOJE',
+                      name:
+                          'Bojë (${buckets.toString()} kova / ${liters.toStringAsFixed(2)} L)',
+                      pack: '${bucketSize.toStringAsFixed(0)}L',
+                      qty: '$buckets',
+                      value: _invoiceMoney(paintTotal),
+                      vat: '-',
+                      total: _invoiceMoney(paintTotal),
+                    ),
                   ),
               ],
             ),
@@ -807,10 +1028,12 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
                     pw.Text(
-                        'Materiale pa TVSH: ${_invoiceMoney(materialTotalPaTvsh)}'),
+                      'Materiale pa TVSH: ${_invoiceMoney(materialTotalPaTvsh)}',
+                    ),
                     pw.SizedBox(height: 4),
                     pw.Text(
-                        'TVSH materiale: ${_invoiceMoney(materialTotalTvsh)}'),
+                      'TVSH materiale: ${_invoiceMoney(materialTotalTvsh)}',
+                    ),
                     pw.SizedBox(height: 4),
                     pw.Text('Puna: ${_invoiceMoney(laborTotal)}'),
                     if (includePaint) ...[
@@ -857,7 +1080,10 @@ class _KalkuloPageState extends State<KalkuloPage> {
                 pw.Column(
                   children: [
                     pw.Container(
-                        width: 180, height: 1, color: PdfColors.grey600),
+                      width: 180,
+                      height: 1,
+                      color: PdfColors.grey600,
+                    ),
                     pw.SizedBox(height: 4),
                     pw.Text('Nënshkrimi'),
                   ],
@@ -865,7 +1091,10 @@ class _KalkuloPageState extends State<KalkuloPage> {
                 pw.Column(
                   children: [
                     pw.Container(
-                        width: 180, height: 1, color: PdfColors.grey600),
+                      width: 180,
+                      height: 1,
+                      color: PdfColors.grey600,
+                    ),
                     pw.SizedBox(height: 4),
                     pw.Text('Pranuesi'),
                   ],
@@ -1005,6 +1234,34 @@ class _KalkuloPageState extends State<KalkuloPage> {
             ],
           ),
           const SizedBox(height: 12),
+          if (firma.emri.isNotEmpty ||
+              firma.description.isNotEmpty ||
+              firma.nrTel.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        firma.emri.isEmpty ? 'Firma' : firma.emri,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      if (firma.description.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(firma.description),
+                      ],
+                      if (firma.nrTel.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text('Tel: ${firma.nrTel}'),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
           if (p == null)
             const Padding(
               padding: EdgeInsets.all(8.0),
@@ -1069,19 +1326,21 @@ class _KalkuloPageState extends State<KalkuloPage> {
               ),
               SizedBox(
                 width: 420,
-                child: DropdownButtonFormField<PriceItem>(
+                child: DropdownButtonFormField<QmimorjaItem>(
                   value: selectedLabor,
                   items: laborItems
                       .map(
-                        (x) => DropdownMenuItem(
+                        (x) => DropdownMenuItem<QmimorjaItem>(
                           value: x,
                           child: Text(
-                            '${x.name} • ${eur((x.price).toDouble())}/${x.unit}',
+                            '${x.name} • ${eur(x.price)}/${x.unit}',
                           ),
                         ),
                       )
                       .toList(),
-                  onChanged: (v) => setState(() => selectedLabor = v),
+                  onChanged: laborItems.isEmpty
+                      ? null
+                      : (v) => setState(() => selectedLabor = v),
                   decoration: const InputDecoration(
                     labelText: 'Zgjedh punën',
                     border: OutlineInputBorder(),
@@ -1157,7 +1416,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                     icon: Icons.handyman_outlined,
                     label: laborFixedValue
                         ? '${p?.laborCategory ?? 'Punë'} (fikse)'
-                        : (p?.laborCategory ?? 'Punë'),
+                        : (selectedLabor?.name ?? p?.laborCategory ?? 'Punë'),
                     value: laborFixedValue
                         ? eur(laborTotal)
                         : '${eur(laborTotal)} (${eur(laborPrice)}/${selectedLabor?.unit ?? 'm²'})',
