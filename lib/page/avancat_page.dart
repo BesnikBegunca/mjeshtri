@@ -187,6 +187,8 @@ class _AvancatPageState extends State<AvancatPage> {
     return _baseSalary - _totalAdvances;
   }
 
+  bool get _isRemainingNegative => _remainingSalary < 0;
+
   Future<void> _pickMonthYear() async {
     int tempMonth = selectedMonth;
     final yearC = TextEditingController(text: selectedYear.toString());
@@ -520,7 +522,8 @@ class _AvancatPageState extends State<AvancatPage> {
               _pdfSummaryCard(
                 title: 'I mbesin pa marrë',
                 value: _fmtPdfMoney(_remainingSalary),
-                highlight: true,
+                highlight: !_isRemainingNegative,
+                negative: _isRemainingNegative,
               ),
             ],
           ),
@@ -597,15 +600,26 @@ class _AvancatPageState extends State<AvancatPage> {
     required String title,
     required String value,
     bool highlight = false,
+    bool negative = false,
   }) {
+    final bgColor = negative
+        ? PdfColors.red50
+        : (highlight ? PdfColors.green50 : PdfColors.grey100);
+
+    final borderColor = negative
+        ? PdfColors.red300
+        : (highlight ? PdfColors.green300 : PdfColors.grey400);
+
+    final valueColor = negative
+        ? PdfColors.red800
+        : (highlight ? PdfColors.green800 : PdfColors.black);
+
     return pw.Expanded(
       child: pw.Container(
         padding: const pw.EdgeInsets.all(10),
         decoration: pw.BoxDecoration(
-          color: highlight ? PdfColors.green50 : PdfColors.grey100,
-          border: pw.Border.all(
-            color: highlight ? PdfColors.green300 : PdfColors.grey400,
-          ),
+          color: bgColor,
+          border: pw.Border.all(color: borderColor),
           borderRadius: pw.BorderRadius.circular(8),
         ),
         child: pw.Column(
@@ -625,7 +639,7 @@ class _AvancatPageState extends State<AvancatPage> {
               style: pw.TextStyle(
                 fontSize: 12,
                 fontWeight: pw.FontWeight.bold,
-                color: highlight ? PdfColors.green800 : PdfColors.black,
+                color: valueColor,
               ),
             ),
           ],
@@ -826,7 +840,8 @@ class _AvancatPageState extends State<AvancatPage> {
                 title: 'I mbesin pa marrë',
                 value: eur(_remainingSalary),
                 icon: Icons.payments,
-                highlight: true,
+                highlight: !_isRemainingNegative,
+                negative: _isRemainingNegative,
               ),
             ],
           ),
@@ -908,23 +923,47 @@ class _AdvanceInfoCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final bool highlight;
+  final bool negative;
 
   const _AdvanceInfoCard({
     required this.title,
     required this.value,
     required this.icon,
     this.highlight = false,
+    this.negative = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = highlight
-        ? Colors.green.withOpacity(0.40)
-        : Colors.white.withOpacity(0.10);
+    final borderColor = negative
+        ? Colors.red.withOpacity(0.45)
+        : highlight
+            ? Colors.green.withOpacity(0.40)
+            : Colors.white.withOpacity(0.10);
 
-    final bgColor = highlight
-        ? Colors.green.withOpacity(0.10)
-        : Colors.white.withOpacity(0.05);
+    final bgColor = negative
+        ? Colors.red.withOpacity(0.10)
+        : highlight
+            ? Colors.green.withOpacity(0.10)
+            : Colors.white.withOpacity(0.05);
+
+    final avatarBg = negative
+        ? Colors.red.withOpacity(0.18)
+        : highlight
+            ? Colors.green.withOpacity(0.18)
+            : Colors.white.withOpacity(0.08);
+
+    final iconColor = negative
+        ? Colors.redAccent
+        : highlight
+            ? Colors.greenAccent
+            : Colors.white;
+
+    final valueColor = negative
+        ? Colors.redAccent
+        : highlight
+            ? Colors.greenAccent
+            : Colors.white;
 
     return Container(
       constraints: const BoxConstraints(minWidth: 220),
@@ -939,13 +978,8 @@ class _AdvanceInfoCard extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 20,
-            backgroundColor: highlight
-                ? Colors.green.withOpacity(0.18)
-                : Colors.white.withOpacity(0.08),
-            child: Icon(
-              icon,
-              color: highlight ? Colors.greenAccent : Colors.white,
-            ),
+            backgroundColor: avatarBg,
+            child: Icon(icon, color: iconColor),
           ),
           const SizedBox(width: 12),
           Column(
@@ -964,7 +998,7 @@ class _AdvanceInfoCard extends StatelessWidget {
                 value,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: highlight ? Colors.greenAccent : Colors.white,
+                      color: valueColor,
                     ),
               ),
             ],
