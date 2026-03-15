@@ -3,9 +3,10 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../data/dao_jobs.dart';
+import '../models/job_project.dart';
 import '../util/format.dart';
 import '../util/qarkullimi_vjetor_pdf.dart';
-import 'punet_page.dart';
 
 class QarkullimiVjetorPage extends StatefulWidget {
   const QarkullimiVjetorPage({super.key});
@@ -15,18 +16,35 @@ class QarkullimiVjetorPage extends StatefulWidget {
 }
 
 class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
+  bool loading = true;
   late int selectedYear;
+
+  List<JobProject> allJobs = [];
 
   @override
   void initState() {
     super.initState();
     selectedYear = DateTime.now().year;
+    _loadJobs();
   }
 
-  List<JobProject> get _allJobs => JobMemoryStore.I.jobs;
+  Future<void> _loadJobs() async {
+    setState(() => loading = true);
 
-  List<int> _availableYears() {
-    final years = _allJobs.map((e) => e.createdAt.year).toSet().toList()..sort();
+    allJobs = await JobsDao.I.listJobs();
+
+    final years = _availableYearsFrom(allJobs);
+    if (!years.contains(selectedYear)) {
+      selectedYear = years.first;
+    }
+
+    if (mounted) {
+      setState(() => loading = false);
+    }
+  }
+
+  List<int> _availableYearsFrom(List<JobProject> jobs) {
+    final years = jobs.map((e) => e.createdAt.year).toSet().toList()..sort();
 
     if (years.isEmpty) {
       years.add(DateTime.now().year);
@@ -38,8 +56,12 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
     return years.reversed.toList();
   }
 
+  List<int> _availableYears() {
+    return _availableYearsFrom(allJobs);
+  }
+
   List<JobProject> _jobsForYear(int year) {
-    return _allJobs.where((j) => j.createdAt.year == year).toList()
+    return allJobs.where((j) => j.createdAt.year == year).toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
   }
 
@@ -75,10 +97,10 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
   }
 
   Future<void> _exportPdfAllYears() async {
-    if (_allJobs.isEmpty) return;
+    if (allJobs.isEmpty) return;
 
     final bytes = await QarkullimiVjetorPdf.buildAllJobs(
-      jobs: _allJobs,
+      jobs: allJobs,
     );
 
     await _savePdf(
@@ -111,6 +133,10 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     final years = _availableYears();
     if (!years.contains(selectedYear)) {
       selectedYear = years.first;
@@ -119,9 +145,11 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
     final rows = _jobsForYear(selectedYear);
 
     final totalJobs = rows.length;
-    final totalQarkullimi = rows.fold<double>(0, (s, e) => s + e.contractAmount);
+    final totalQarkullimi =
+        rows.fold<double>(0, (s, e) => s + e.contractAmount);
     final totalExpenses = rows.fold<double>(0, (s, e) => s + _expensesTotal(e));
-    final totalInvestment = rows.fold<double>(0, (s, e) => s + _investmentTotal(e));
+    final totalInvestment =
+        rows.fold<double>(0, (s, e) => s + _investmentTotal(e));
     final totalProfit = rows.fold<double>(0, (s, e) => s + _profit(e));
 
     return Column(
@@ -134,6 +162,12 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             const Spacer(),
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: _loadJobs,
+              icon: const Icon(Icons.refresh),
+            ),
+            const SizedBox(width: 8),
             OutlinedButton.icon(
               onPressed: rows.isEmpty ? null : _exportPdfSelectedYear,
               icon: const Icon(Icons.picture_as_pdf),
@@ -141,7 +175,7 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
             ),
             const SizedBox(width: 8),
             ElevatedButton.icon(
-              onPressed: _allJobs.isEmpty ? null : _exportPdfAllYears,
+              onPressed: allJobs.isEmpty ? null : _exportPdfAllYears,
               icon: const Icon(Icons.download),
               label: const Text('PDF (krejt)'),
             ),
@@ -219,7 +253,9 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
                         return SingleChildScrollView(
                           padding: const EdgeInsets.all(8),
                           child: ConstrainedBox(
-                            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                            constraints: BoxConstraints(
+                              minWidth: constraints.maxWidth,
+                            ),
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: DataTable(
@@ -249,10 +285,18 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
                                         DataCell(Text(_fmtDate(job.createdAt))),
                                         DataCell(Text(job.name)),
                                         DataCell(Text(job.clientName ?? '—')),
-                                        DataCell(_MoneyBadge(eur(job.contractAmount))),
-                                        DataCell(_ExpenseBadge(eur(expenses))),
-                                        DataCell(_InvestBadge(eur(investment))),
-                                        DataCell(_ProfitBadge(eur(profit))),
+                                        DataCell(
+                                          _MoneyBadge(eur(job.contractAmount)),
+                                        ),
+                                        DataCell(
+                                          _ExpenseBadge(eur(expenses)),
+                                        ),
+                                        DataCell(
+                                          _InvestBadge(eur(investment)),
+                                        ),
+                                        DataCell(
+                                          _ProfitBadge(eur(profit)),
+                                        ),
                                       ],
                                     );
                                   }),
@@ -263,17 +307,27 @@ class _QarkullimiVjetorPageState extends State<QarkullimiVjetorPage> {
                                     cells: [
                                       const DataCell(Text('')),
                                       const DataCell(Text('')),
-                                      DataCell(
+                                      const DataCell(
                                         Text(
                                           'TOTAL',
-                                          style: const TextStyle(fontWeight: FontWeight.w800),
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
                                         ),
                                       ),
                                       const DataCell(Text('—')),
-                                      DataCell(_MoneyBadge(eur(totalQarkullimi))),
-                                      DataCell(_ExpenseBadge(eur(totalExpenses))),
-                                      DataCell(_InvestBadge(eur(totalInvestment))),
-                                      DataCell(_ProfitBadge(eur(totalProfit))),
+                                      DataCell(
+                                        _MoneyBadge(eur(totalQarkullimi)),
+                                      ),
+                                      DataCell(
+                                        _ExpenseBadge(eur(totalExpenses)),
+                                      ),
+                                      DataCell(
+                                        _InvestBadge(eur(totalInvestment)),
+                                      ),
+                                      DataCell(
+                                        _ProfitBadge(eur(totalProfit)),
+                                      ),
                                     ],
                                   ),
                                 ],

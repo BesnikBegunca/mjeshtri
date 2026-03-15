@@ -32,7 +32,7 @@ class AppDb {
 
     db = await openDatabase(
       path,
-      version: 7,
+      version: 8,
       onConfigure: (d) async {
         await d.execute('PRAGMA foreign_keys = ON;');
       },
@@ -112,6 +112,44 @@ class AppDb {
             note TEXT,
             createdAt TEXT NOT NULL,
             FOREIGN KEY(workerId) REFERENCES workers(id) ON DELETE CASCADE
+          );
+        ''');
+
+        // JOBS
+        await d.execute('''
+          CREATE TABLE jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            clientName TEXT,
+            contractAmount REAL NOT NULL DEFAULT 0,
+            note TEXT,
+            createdAt TEXT NOT NULL
+          );
+        ''');
+
+        await d.execute('''
+          CREATE TABLE job_worker_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            jobId INTEGER NOT NULL,
+            workerId INTEGER NOT NULL,
+            workerName TEXT NOT NULL,
+            workerPosition TEXT,
+            days INTEGER NOT NULL DEFAULT 0,
+            dailyRate REAL NOT NULL DEFAULT 0,
+            note TEXT,
+            FOREIGN KEY(jobId) REFERENCES jobs(id) ON DELETE CASCADE,
+            FOREIGN KEY(workerId) REFERENCES workers(id) ON DELETE CASCADE
+          );
+        ''');
+
+        await d.execute('''
+          CREATE TABLE job_expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            jobId INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            amount REAL NOT NULL DEFAULT 0,
+            note TEXT,
+            FOREIGN KEY(jobId) REFERENCES jobs(id) ON DELETE CASCADE
           );
         ''');
 
@@ -205,6 +243,45 @@ class AppDb {
               note TEXT,
               createdAt TEXT NOT NULL,
               FOREIGN KEY(workerId) REFERENCES workers(id) ON DELETE CASCADE
+            );
+          ''');
+        }
+
+        if (oldV < 8) {
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS jobs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              clientName TEXT,
+              contractAmount REAL NOT NULL DEFAULT 0,
+              note TEXT,
+              createdAt TEXT NOT NULL
+            );
+          ''');
+
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS job_worker_entries (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              jobId INTEGER NOT NULL,
+              workerId INTEGER NOT NULL,
+              workerName TEXT NOT NULL,
+              workerPosition TEXT,
+              days INTEGER NOT NULL DEFAULT 0,
+              dailyRate REAL NOT NULL DEFAULT 0,
+              note TEXT,
+              FOREIGN KEY(jobId) REFERENCES jobs(id) ON DELETE CASCADE,
+              FOREIGN KEY(workerId) REFERENCES workers(id) ON DELETE CASCADE
+            );
+          ''');
+
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS job_expenses (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              jobId INTEGER NOT NULL,
+              title TEXT NOT NULL,
+              amount REAL NOT NULL DEFAULT 0,
+              note TEXT,
+              FOREIGN KEY(jobId) REFERENCES jobs(id) ON DELETE CASCADE
             );
           ''');
         }

@@ -3,17 +3,12 @@ import 'dart:io';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../data/dao_jobs.dart';
 import '../data/dao_workers.dart';
+import '../models/job_project.dart';
 import '../models/worker.dart';
 import '../util/format.dart';
 import '../util/job_report_pdf.dart';
-
-class JobMemoryStore {
-  JobMemoryStore._();
-  static final JobMemoryStore I = JobMemoryStore._();
-
-  final List<JobProject> jobs = [];
-}
 
 class PunetPage extends StatefulWidget {
   const PunetPage({super.key});
@@ -40,26 +35,37 @@ class _PunetPageState extends State<PunetPage> {
     setState(() => loading = true);
 
     workers = await WorkersDao.I.list();
-    jobs = JobMemoryStore.I.jobs;
+    jobs = await JobsDao.I.listJobs();
 
-    if (jobs.isEmpty) {
-      jobs.add(
-        JobProject(
-          id: 1,
-          name: 'Shtëpia e Kulturës',
-          clientName: 'Komuna',
-          contractAmount: 12000,
-          note: 'Renovim i brendshëm dhe fasadë',
-          createdAt: DateTime.now(),
-          workerEntries: [],
-          expenses: [],
-        ),
-      );
+    if (jobs.isNotEmpty) {
+      selectedJob = jobs.first;
+    } else {
+      selectedJob = null;
     }
 
-    selectedJob = jobs.isNotEmpty ? jobs.first : null;
+    if (mounted) {
+      setState(() => loading = false);
+    }
+  }
 
-    setState(() => loading = false);
+  Future<void> _reloadJobs({int? keepSelectedId}) async {
+    jobs = await JobsDao.I.listJobs();
+
+    if (jobs.isEmpty) {
+      selectedJob = null;
+    } else {
+      if (keepSelectedId != null) {
+        selectedJob = jobs
+            .where((e) => e.id == keepSelectedId)
+            .cast<JobProject?>()
+            .firstOrNull;
+      }
+      selectedJob ??= jobs.first;
+    }
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _addJob() async {
@@ -131,21 +137,17 @@ class _PunetPageState extends State<PunetPage> {
     final name = nameC.text.trim();
     if (name.isEmpty) return;
 
-    final job = JobProject(
-      id: DateTime.now().millisecondsSinceEpoch,
-      name: name,
-      clientName: clientC.text.trim().isEmpty ? null : clientC.text.trim(),
-      contractAmount: double.tryParse(amountC.text.replaceAll(',', '.')) ?? 0,
-      note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
-      createdAt: DateTime.now(),
-      workerEntries: [],
-      expenses: [],
+    final id = await JobsDao.I.insertJob(
+      JobProject(
+        name: name,
+        clientName: clientC.text.trim().isEmpty ? null : clientC.text.trim(),
+        contractAmount: double.tryParse(amountC.text.replaceAll(',', '.')) ?? 0,
+        note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
+        createdAt: DateTime.now(),
+      ),
     );
 
-    setState(() {
-      jobs.add(job);
-      selectedJob = job;
-    });
+    await _reloadJobs(keepSelectedId: id);
   }
 
   Future<void> _editJob(JobProject job) async {
@@ -216,13 +218,14 @@ class _PunetPageState extends State<PunetPage> {
 
     if (ok != true) return;
 
-    setState(() {
-      job.name = nameC.text.trim().isEmpty ? job.name : nameC.text.trim();
-      job.clientName = clientC.text.trim().isEmpty ? null : clientC.text.trim();
-      job.contractAmount =
-          double.tryParse(amountC.text.replaceAll(',', '.')) ?? 0;
-      job.note = noteC.text.trim().isEmpty ? null : noteC.text.trim();
-    });
+    job.name = nameC.text.trim().isEmpty ? job.name : nameC.text.trim();
+    job.clientName = clientC.text.trim().isEmpty ? null : clientC.text.trim();
+    job.contractAmount =
+        double.tryParse(amountC.text.replaceAll(',', '.')) ?? 0;
+    job.note = noteC.text.trim().isEmpty ? null : noteC.text.trim();
+
+    await JobsDao.I.updateJob(job);
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
   Future<void> _deleteJob(JobProject job) async {
@@ -245,18 +248,15 @@ class _PunetPageState extends State<PunetPage> {
     );
 
     if (ok != true) return;
+    if (job.id == null) return;
 
-    setState(() {
-      jobs.removeWhere((e) => e.id == job.id);
-      if (selectedJob?.id == job.id) {
-        selectedJob = jobs.isNotEmpty ? jobs.first : null;
-      }
-    });
+    await JobsDao.I.deleteJob(job.id!);
+    await _reloadJobs();
   }
 
   Future<void> _addWorkerToJob() async {
     final job = selectedJob;
-    if (job == null) return;
+    if (job == null || job.id == null) return;
 
     if (workers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -268,10 +268,9 @@ class _PunetPageState extends State<PunetPage> {
     Worker selectedWorker = workers.first;
     final daysC = TextEditingController(text: '1');
     final dailyRateC = TextEditingController(
-      text: ((selectedWorker.baseSalary > 0
-              ? selectedWorker.baseSalary / 26
-              : 0))
-          .toStringAsFixed(2),
+      text:
+          ((selectedWorker.baseSalary > 0 ? selectedWorker.baseSalary / 26 : 0))
+              .toStringAsFixed(2),
     );
     final noteC = TextEditingController();
 
@@ -307,11 +306,10 @@ class _PunetPageState extends State<PunetPage> {
                       if (v == null) return;
                       setLocal(() {
                         selectedWorker = v;
-                        dailyRateC.text =
-                            ((selectedWorker.baseSalary > 0
-                                    ? selectedWorker.baseSalary / 26
-                                    : 0))
-                                .toStringAsFixed(2);
+                        dailyRateC.text = ((selectedWorker.baseSalary > 0
+                                ? selectedWorker.baseSalary / 26
+                                : 0))
+                            .toStringAsFixed(2);
                       });
                     },
                     decoration: const InputDecoration(
@@ -384,26 +382,30 @@ class _PunetPageState extends State<PunetPage> {
     if (ok != true) return;
 
     final days = int.tryParse(daysC.text) ?? 0;
-    final dailyRate = double.tryParse(dailyRateC.text.replaceAll(',', '.')) ?? 0;
+    final dailyRate =
+        double.tryParse(dailyRateC.text.replaceAll(',', '.')) ?? 0;
 
     if (days <= 0) return;
+    if (selectedWorker.id == null) return;
 
-    setState(() {
-      job.workerEntries.add(
-        JobWorkerEntry(
-          id: DateTime.now().microsecondsSinceEpoch,
-          workerId: selectedWorker.id!,
-          workerName: selectedWorker.fullName,
-          workerPosition: selectedWorker.position,
-          days: days,
-          dailyRate: dailyRate,
-          note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
-        ),
-      );
-    });
+    await JobsDao.I.insertWorkerEntry(
+      JobWorkerEntry(
+        jobId: job.id!,
+        workerId: selectedWorker.id!,
+        workerName: selectedWorker.fullName,
+        workerPosition: selectedWorker.position,
+        days: days,
+        dailyRate: dailyRate,
+        note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
+      ),
+    );
+
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
   Future<void> _editWorkerEntry(JobProject job, JobWorkerEntry entry) async {
+    if (workers.isEmpty) return;
+
     Worker? existingWorker = workers
         .where((w) => w.id == entry.workerId)
         .cast<Worker?>()
@@ -499,28 +501,30 @@ class _PunetPageState extends State<PunetPage> {
     );
 
     if (ok != true) return;
+    if (entry.id == null) return;
+    if (selectedWorker.id == null) return;
 
-    setState(() {
-      entry.workerId = selectedWorker.id!;
-      entry.workerName = selectedWorker.fullName;
-      entry.workerPosition = selectedWorker.position;
-      entry.days = int.tryParse(daysC.text) ?? entry.days;
-      entry.dailyRate =
-          double.tryParse(dailyRateC.text.replaceAll(',', '.')) ??
-              entry.dailyRate;
-      entry.note = noteC.text.trim().isEmpty ? null : noteC.text.trim();
-    });
+    entry.workerId = selectedWorker.id!;
+    entry.workerName = selectedWorker.fullName;
+    entry.workerPosition = selectedWorker.position;
+    entry.days = int.tryParse(daysC.text) ?? entry.days;
+    entry.dailyRate = double.tryParse(dailyRateC.text.replaceAll(',', '.')) ??
+        entry.dailyRate;
+    entry.note = noteC.text.trim().isEmpty ? null : noteC.text.trim();
+
+    await JobsDao.I.updateWorkerEntry(entry);
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
-  void _deleteWorkerEntry(JobProject job, int id) {
-    setState(() {
-      job.workerEntries.removeWhere((e) => e.id == id);
-    });
+  Future<void> _deleteWorkerEntry(JobProject job, int? id) async {
+    if (id == null) return;
+    await JobsDao.I.deleteWorkerEntry(id);
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
   Future<void> _addExpense() async {
     final job = selectedJob;
-    if (job == null) return;
+    if (job == null || job.id == null) return;
 
     final titleC = TextEditingController();
     final amountC = TextEditingController(text: '0');
@@ -580,19 +584,19 @@ class _PunetPageState extends State<PunetPage> {
     final title = titleC.text.trim();
     if (title.isEmpty) return;
 
-    setState(() {
-      job.expenses.add(
-        JobExpense(
-          id: DateTime.now().microsecondsSinceEpoch,
-          title: title,
-          amount: double.tryParse(amountC.text.replaceAll(',', '.')) ?? 0,
-          note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
-        ),
-      );
-    });
+    await JobsDao.I.insertExpense(
+      JobExpense(
+        jobId: job.id!,
+        title: title,
+        amount: double.tryParse(amountC.text.replaceAll(',', '.')) ?? 0,
+        note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
+      ),
+    );
+
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
-  Future<void> _editExpense(JobExpense e) async {
+  Future<void> _editExpense(JobProject job, JobExpense e) async {
     final titleC = TextEditingController(text: e.title);
     final amountC = TextEditingController(text: e.amount.toStringAsFixed(2));
     final noteC = TextEditingController(text: e.note ?? '');
@@ -647,18 +651,20 @@ class _PunetPageState extends State<PunetPage> {
     );
 
     if (ok != true) return;
+    if (e.id == null) return;
 
-    setState(() {
-      e.title = titleC.text.trim().isEmpty ? e.title : titleC.text.trim();
-      e.amount = double.tryParse(amountC.text.replaceAll(',', '.')) ?? e.amount;
-      e.note = noteC.text.trim().isEmpty ? null : noteC.text.trim();
-    });
+    e.title = titleC.text.trim().isEmpty ? e.title : titleC.text.trim();
+    e.amount = double.tryParse(amountC.text.replaceAll(',', '.')) ?? e.amount;
+    e.note = noteC.text.trim().isEmpty ? null : noteC.text.trim();
+
+    await JobsDao.I.updateExpense(e);
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
-  void _deleteExpense(JobProject job, int id) {
-    setState(() {
-      job.expenses.removeWhere((e) => e.id == id);
-    });
+  Future<void> _deleteExpense(JobProject job, int? id) async {
+    if (id == null) return;
+    await JobsDao.I.deleteExpense(id);
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
   Future<void> _exportPdfSelected() async {
@@ -819,7 +825,8 @@ class _PunetPageState extends State<PunetPage> {
                               children: [
                                 Text(
                                   job.name,
-                                  style: Theme.of(context).textTheme.headlineSmall,
+                                  style:
+                                      Theme.of(context).textTheme.headlineSmall,
                                 ),
                                 const SizedBox(height: 8),
                                 _InfoRow('Klienti', job.clientName ?? '—'),
@@ -973,7 +980,8 @@ class _PunetPageState extends State<PunetPage> {
                                         children: [
                                           IconButton(
                                             icon: const Icon(Icons.edit),
-                                            onPressed: () => _editExpense(e),
+                                            onPressed: () =>
+                                                _editExpense(job, e),
                                           ),
                                           IconButton(
                                             icon: const Icon(Icons.delete),
@@ -1006,64 +1014,6 @@ class _PunetPageState extends State<PunetPage> {
     final day = d.day.toString().padLeft(2, '0');
     return '$y-$m-$day';
   }
-}
-
-class JobProject {
-  int id;
-  String name;
-  String? clientName;
-  double contractAmount;
-  String? note;
-  DateTime createdAt;
-  List<JobWorkerEntry> workerEntries;
-  List<JobExpense> expenses;
-
-  JobProject({
-    required this.id,
-    required this.name,
-    this.clientName,
-    required this.contractAmount,
-    this.note,
-    required this.createdAt,
-    required this.workerEntries,
-    required this.expenses,
-  });
-}
-
-class JobWorkerEntry {
-  int id;
-  int workerId;
-  String workerName;
-  String? workerPosition;
-  int days;
-  double dailyRate;
-  String? note;
-
-  JobWorkerEntry({
-    required this.id,
-    required this.workerId,
-    required this.workerName,
-    this.workerPosition,
-    required this.days,
-    required this.dailyRate,
-    this.note,
-  });
-
-  double get total => days * dailyRate;
-}
-
-class JobExpense {
-  int id;
-  String title;
-  double amount;
-  String? note;
-
-  JobExpense({
-    required this.id,
-    required this.title,
-    required this.amount,
-    this.note,
-  });
 }
 
 class _InfoRow extends StatelessWidget {

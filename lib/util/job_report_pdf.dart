@@ -1,9 +1,11 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-import '../page/punet_page.dart';
+import '../models/job_project.dart';
 
 class JobReportPdf {
+  JobReportPdf._();
+
   static Future<List<int>> buildSingleJob({
     required JobProject job,
   }) async {
@@ -35,21 +37,24 @@ class JobReportPdf {
   }) async {
     final pdf = pw.Document();
 
+    final rows = [...jobs]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(24),
         build: (_) {
           final items = <pw.Widget>[
             _header('Raport i Krejt Punëve'),
             pw.SizedBox(height: 16),
-            _allJobsTable(jobs),
+            _allJobsTable(rows),
           ];
 
-          for (final job in jobs) {
+          for (final job in rows) {
             items.addAll([
               pw.SizedBox(height: 20),
               pw.Container(
+                width: double.infinity,
                 padding: const pw.EdgeInsets.all(10),
                 color: PdfColors.grey200,
                 child: pw.Text(
@@ -64,6 +69,10 @@ class JobReportPdf {
               _jobInfo(job),
               pw.SizedBox(height: 10),
               _summary(job),
+              pw.SizedBox(height: 10),
+              _workersTable(job),
+              pw.SizedBox(height: 10),
+              _expensesTable(job),
             ]);
           }
 
@@ -168,7 +177,20 @@ class JobReportPdf {
 
   static pw.Widget _workersTable(JobProject job) {
     if (job.workerEntries.isEmpty) {
-      return pw.Text('Nuk ka punëtorë të shtuar.');
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            'Punëtorët',
+            style: pw.TextStyle(
+              fontSize: 16,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text('Nuk ka punëtorë të shtuar.'),
+        ],
+      );
     }
 
     return pw.Column(
@@ -195,7 +217,7 @@ class JobReportPdf {
             'Shënim',
           ],
           data: job.workerEntries
-              .map(
+              .map<List<String>>(
                 (e) => [
                   e.workerName,
                   e.workerPosition ?? '—',
@@ -213,7 +235,20 @@ class JobReportPdf {
 
   static pw.Widget _expensesTable(JobProject job) {
     if (job.expenses.isEmpty) {
-      return pw.Text('Nuk ka shpenzime të shtuara.');
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            'Shpenzimet',
+            style: pw.TextStyle(
+              fontSize: 16,
+              fontWeight: pw.FontWeight.bold,
+            ),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text('Nuk ka shpenzime të shtuara.'),
+        ],
+      );
     }
 
     return pw.Column(
@@ -237,7 +272,7 @@ class JobReportPdf {
             'Shënim',
           ],
           data: job.expenses
-              .map(
+              .map<List<String>>(
                 (e) => [
                   e.title,
                   _money(e.amount),
@@ -268,7 +303,7 @@ class JobReportPdf {
         'Investimi',
         'Fitimi',
       ],
-      data: jobs.map((job) {
+      data: jobs.map<List<String>>((job) {
         final workers = _workersTotal(job);
         final expenses = _expensesTotal(job);
         final investment = workers + expenses;
@@ -307,11 +342,11 @@ class JobReportPdf {
   }
 
   static double _workersTotal(JobProject job) {
-    return job.workerEntries.fold(0, (sum, e) => sum + e.total);
+    return job.workerEntries.fold<double>(0.0, (sum, e) => sum + e.total);
   }
 
   static double _expensesTotal(JobProject job) {
-    return job.expenses.fold(0, (sum, e) => sum + e.amount);
+    return job.expenses.fold<double>(0.0, (sum, e) => sum + e.amount);
   }
 
   static String _fmtDate(DateTime d) {

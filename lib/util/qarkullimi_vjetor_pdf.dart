@@ -1,24 +1,30 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-import '../page/punet_page.dart';
+import '../models/job_project.dart';
 
 class QarkullimiVjetorPdf {
+  QarkullimiVjetorPdf._();
+
   static Future<List<int>> buildForYear({
     required int year,
     required List<JobProject> jobs,
   }) async {
     final pdf = pw.Document();
 
-    final totalJobs = jobs.length;
-    final totalQarkullimi = jobs.fold<double>(0, (s, e) => s + e.contractAmount);
-    final totalExpenses = jobs.fold<double>(0, (s, e) => s + _expensesTotal(e));
-    final totalInvestment = jobs.fold<double>(0, (s, e) => s + _investmentTotal(e));
-    final totalProfit = jobs.fold<double>(0, (s, e) => s + _profit(e));
+    final rows = [...jobs]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    final totalJobs = rows.length;
+    final totalQarkullimi =
+        rows.fold<double>(0, (s, e) => s + e.contractAmount);
+    final totalExpenses = rows.fold<double>(0, (s, e) => s + _expensesTotal(e));
+    final totalInvestment =
+        rows.fold<double>(0, (s, e) => s + _investmentTotal(e));
+    final totalProfit = rows.fold<double>(0, (s, e) => s + _profit(e));
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(24),
         build: (_) => [
           _header('Qarkullimi Vjetor - $year'),
@@ -31,7 +37,7 @@ class QarkullimiVjetorPdf {
             totalProfit: totalProfit,
           ),
           pw.SizedBox(height: 16),
-          _jobsTable(jobs),
+          _jobsTable(rows),
         ],
       ),
     );
@@ -48,7 +54,7 @@ class QarkullimiVjetorPdf {
 
     pdf.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(24),
         build: (_) {
           final widgets = <pw.Widget>[
@@ -67,8 +73,7 @@ class QarkullimiVjetorPdf {
                 rows.fold<double>(0, (s, e) => s + _expensesTotal(e));
             final totalInvestment =
                 rows.fold<double>(0, (s, e) => s + _investmentTotal(e));
-            final totalProfit =
-                rows.fold<double>(0, (s, e) => s + _profit(e));
+            final totalProfit = rows.fold<double>(0, (s, e) => s + _profit(e));
 
             widgets.addAll([
               pw.Container(
@@ -195,9 +200,11 @@ class QarkullimiVjetorPdf {
       return pw.Text('Nuk ka punë.');
     }
 
-    final totalQarkullimi = jobs.fold<double>(0, (s, e) => s + e.contractAmount);
+    final totalQarkullimi =
+        jobs.fold<double>(0, (s, e) => s + e.contractAmount);
     final totalExpenses = jobs.fold<double>(0, (s, e) => s + _expensesTotal(e));
-    final totalInvestment = jobs.fold<double>(0, (s, e) => s + _investmentTotal(e));
+    final totalInvestment =
+        jobs.fold<double>(0, (s, e) => s + _investmentTotal(e));
     final totalProfit = jobs.fold<double>(0, (s, e) => s + _profit(e));
 
     final data = <List<String>>[];
@@ -250,11 +257,11 @@ class QarkullimiVjetorPdf {
   }
 
   static double _workersTotal(JobProject job) {
-    return job.workerEntries.fold(0.0, (sum, e) => sum + e.total);
+    return job.workerEntries.fold<double>(0.0, (sum, e) => sum + e.total);
   }
 
   static double _expensesTotal(JobProject job) {
-    return job.expenses.fold(0.0, (sum, e) => sum + e.amount);
+    return job.expenses.fold<double>(0.0, (sum, e) => sum + e.amount);
   }
 
   static double _investmentTotal(JobProject job) {
