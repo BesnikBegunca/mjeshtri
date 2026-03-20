@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
@@ -25,7 +27,6 @@ class PunetoretPage extends StatefulWidget {
 
 class _PunetoretPageState extends State<PunetoretPage> {
   bool loading = true;
-
   List<Worker> workers = [];
   Map<int, List<PayrollEntry>> payrollByWorker = {};
   final Set<int> expandedStatsWorkerIds = {};
@@ -59,7 +60,9 @@ class _PunetoretPageState extends State<PunetoretPage> {
     final map = <int, List<PayrollEntry>>{};
     for (final w in workers) {
       if (w.id == null) continue;
-      map[w.id!] = await PayrollDao.I.listForWorker(w.id!);
+      final list = await PayrollDao.I.listForWorker(w.id!);
+      list.sort((a, b) => b.month.compareTo(a.month));
+      map[w.id!] = list;
     }
 
     payrollByWorker = map;
@@ -68,8 +71,6 @@ class _PunetoretPageState extends State<PunetoretPage> {
       setState(() => loading = false);
     }
   }
-
-  // ==================== HELPERS ====================
 
   String _ymNow() {
     final d = DateTime.now();
@@ -86,20 +87,12 @@ class _PunetoretPageState extends State<PunetoretPage> {
   int _yearFromYm(String ym) {
     final parts = ym.split('-');
     if (parts.isEmpty) return DateTime.now().year;
-    final yy = int.tryParse(parts[0]) ?? DateTime.now().year;
-    return yy;
+    return int.tryParse(parts[0]) ?? DateTime.now().year;
   }
 
   String _ymFromYearMonth(int year, int month) {
     final mm = month.toString().padLeft(2, '0');
     return '$year-$mm';
-  }
-
-  int _calcDaysInclusive(DateTime from, DateTime to) {
-    final a = DateTime(from.year, from.month, from.day);
-    final b = DateTime(to.year, to.month, to.day);
-    final diff = b.difference(a).inDays;
-    return diff >= 0 ? diff + 1 : 0;
   }
 
   String _fmtDate(DateTime d) {
@@ -112,15 +105,23 @@ class _PunetoretPageState extends State<PunetoretPage> {
   String _monthLabel(String ym) {
     final parts = ym.split('-');
     if (parts.length < 2) return ym.toUpperCase();
-
     final mm = int.tryParse(parts[1]) ?? 0;
+    final yy = int.tryParse(parts[0]) ?? DateTime.now().year;
     if (mm < 1 || mm > 12) return ym.toUpperCase();
-    return _monthNames[mm - 1];
+    return '${_monthNames[mm - 1]} $yy';
   }
 
   List<PayrollEntry> _entriesForWorker(Worker worker) {
     if (worker.id == null) return [];
     return payrollByWorker[worker.id!] ?? [];
+  }
+
+  PayrollEntry? _entryForWorkerMonth(Worker worker, String ym) {
+    final list = _entriesForWorker(worker);
+    for (final e in list) {
+      if (e.month == ym) return e;
+    }
+    return null;
   }
 
   double _grossForWorker(Worker worker) {
@@ -134,6 +135,11 @@ class _PunetoretPageState extends State<PunetoretPage> {
   double _costForWorker(Worker worker) {
     return _entriesForWorker(worker)
         .fold(0.0, (sum, e) => sum + e.employerCost);
+  }
+
+  int _workedDaysForWorker(Worker worker) {
+    return _entriesForWorker(worker)
+        .fold(0, (sum, e) => sum + e.workedDaysCount);
   }
 
   double get _totalGrossAll {
@@ -152,6 +158,10 @@ class _PunetoretPageState extends State<PunetoretPage> {
     return workers.fold(0, (sum, w) => sum + _entriesForWorker(w).length);
   }
 
+  int get _totalWorkedDaysAll {
+    return workers.fold(0, (sum, w) => sum + _workedDaysForWorker(w));
+  }
+
   PayrollEntry? _latestPayrollForWorker(Worker worker) {
     final list = [..._entriesForWorker(worker)];
     if (list.isEmpty) return null;
@@ -159,12 +169,35 @@ class _PunetoretPageState extends State<PunetoretPage> {
     return list.first;
   }
 
-  // ==================== WORKER ====================
+  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  bool _sameDate(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  Set<DateTime> _decodeWorkedDays(String? jsonText) {
+    if (jsonText == null || jsonText.trim().isEmpty) return {};
+    try {
+      final decoded = jsonDecode(jsonText);
+      if (decoded is! List) return {};
+      return decoded.map<DateTime>((e) {
+        final parts = e.toString().split('-');
+        return DateTime(
+          int.parse(parts[0]),
+          int.parse(parts[1]),
+          int.parse(parts[2]),
+        );
+      }).toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  bool _isSunday(DateTime d) => d.weekday == DateTime.sunday;
 
   Future<void> _addWorker() async {
     final nameC = TextEditingController();
     final posC = TextEditingController(text: 'Punëtor');
-    final salaryC = TextEditingController(text: '0');
+    final dailyRateC = TextEditingController(text: '35');
 
     final ok = await showDialog<bool>(
       context: context,
@@ -192,11 +225,11 @@ class _PunetoretPageState extends State<PunetoretPage> {
               ),
               const SizedBox(height: 12),
               TextField(
-                controller: salaryC,
+                controller: dailyRateC,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(
-                  labelText: 'Rroga bazë (€)',
+                  labelText: 'Pagesa për ditë (€)',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -224,7 +257,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
     final worker = Worker(
       fullName: name,
       position: posC.text.trim().isEmpty ? 'Punëtor' : posC.text.trim(),
-      baseSalary: double.tryParse(salaryC.text.replaceAll(',', '.')) ?? 0,
+      baseSalary: double.tryParse(dailyRateC.text.replaceAll(',', '.')) ?? 35,
     );
 
     await WorkersDao.I.insert(worker);
@@ -248,7 +281,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
         content: Text(
           payrollForWorker.isEmpty
               ? 'A je i sigurt që don me fshi punëtorin "${w.fullName}"?'
-              : 'Punëtori "${w.fullName}" ka ${payrollForWorker.length} pagesa/rroga të regjistruara.\n\nNëse vazhdon, do të fshihen edhe rrogat e tij.\n\nA don me vazhdu?',
+              : 'Punëtori "${w.fullName}" ka ${payrollForWorker.length} rroga të regjistruara.\n\nNëse vazhdon, do të fshihen edhe rrogat e tij.\n\nA don me vazhdu?',
         ),
         actions: [
           TextButton(
@@ -285,31 +318,44 @@ class _PunetoretPageState extends State<PunetoretPage> {
     );
   }
 
-  // ==================== PAYROLL ====================
-
   Future<void> _payNowForWorker(Worker w) async {
-    await _openPayrollEditor(worker: w, existing: null);
+    final ym = _ymNow();
+    final existing = _entryForWorkerMonth(w, ym);
+
+    if (existing != null) {
+      await _openPayrollEditor(
+        worker: w,
+        existing: existing,
+        lockToExistingMonth: true,
+      );
+    } else {
+      await _openPayrollEditor(
+        worker: w,
+        existing: null,
+        fixedYm: ym,
+      );
+    }
+
     await _loadWorkers();
   }
 
   Future<void> _openPayrollEditor({
     required Worker worker,
     PayrollEntry? existing,
+    bool lockToExistingMonth = false,
+    String? fixedYm,
   }) async {
-    final nowYm = _ymNow();
-    int year =
-        existing == null ? _yearFromYm(nowYm) : _yearFromYm(existing.month);
-    int month =
-        existing == null ? _monthFromYm(nowYm) : _monthFromYm(existing.month);
+    if (worker.id == null) return;
 
-    bool dailyPay = false;
-    DateTime fromDate = DateTime.now();
-    DateTime toDate = DateTime.now();
-    final daysC = TextEditingController(text: '');
-    final customPayC = TextEditingController(text: '');
+    final seedYm = fixedYm ?? existing?.month ?? _ymNow();
+    int year = _yearFromYm(seedYm);
+    int month = _monthFromYm(seedYm);
 
-    final grossC = TextEditingController(
-      text: (existing?.grossSalary ?? worker.baseSalary).toStringAsFixed(2),
+    final dailyRateC = TextEditingController(
+      text: ((existing?.dailyRate ?? worker.baseSalary) <= 0
+              ? 35
+              : (existing?.dailyRate ?? worker.baseSalary))
+          .toStringAsFixed(2),
     );
     final empPctC = TextEditingController(
       text: (existing?.employeePct ?? 5).toString(),
@@ -319,66 +365,84 @@ class _PunetoretPageState extends State<PunetoretPage> {
     );
     final noteC = TextEditingController(text: existing?.note ?? '');
 
+    Set<DateTime> workedDays =
+        _decodeWorkedDays(existing?.workedDaysJson).map(_dateOnly).toSet();
+
+    Future<PayrollEntry?> findMonthEntry() async {
+      final ym = _ymFromYearMonth(year, month);
+      return PayrollDao.I.findForWorkerMonth(worker.id!, ym);
+    }
+
+    void syncWorkedDaysMonth() {
+      workedDays =
+          workedDays.where((d) => d.year == year && d.month == month).toSet();
+    }
+
+    syncWorkedDaysMonth();
+
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (context, setLocal) {
-          Future<void> pickFrom() async {
-            final d = await showDatePicker(
-              context: context,
-              initialDate: fromDate,
-              firstDate: DateTime(2000),
-              lastDate: DateTime(2100),
-            );
-            if (d == null) return;
-            setLocal(() {
-              fromDate = d;
-              final days = _calcDaysInclusive(fromDate, toDate);
-              if (days > 0) daysC.text = days.toString();
-            });
-          }
+          syncWorkedDaysMonth();
 
-          Future<void> pickTo() async {
-            final d = await showDatePicker(
-              context: context,
-              initialDate: toDate,
-              firstDate: DateTime(2000),
-              lastDate: DateTime(2100),
-            );
-            if (d == null) return;
-            setLocal(() {
-              toDate = d;
-              final days = _calcDaysInclusive(fromDate, toDate);
-              if (days > 0) daysC.text = days.toString();
-            });
-          }
+          final daysInMonth = DateTime(year, month + 1, 0).day;
+          final firstDay = DateTime(year, month, 1);
+          final leadingEmpty = firstDay.weekday - 1;
 
-          void syncGrossFromCustom() {
-            final v = double.tryParse(customPayC.text.replaceAll(',', '.'));
-            if (v != null) {
-              grossC.text = v.toStringAsFixed(2);
-            }
-          }
-
-          final gross = double.tryParse(grossC.text.replaceAll(',', '.')) ?? 0;
+          final dailyRate =
+              double.tryParse(dailyRateC.text.replaceAll(',', '.')) ?? 0;
           final emp = double.tryParse(empPctC.text.replaceAll(',', '.')) ?? 0;
           final emr = double.tryParse(emrPctC.text.replaceAll(',', '.')) ?? 0;
 
+          final workedCount = workedDays.length;
+          final gross = dailyRate * workedCount;
           final net = gross * (1.0 - emp / 100.0);
           final cost = gross * (1.0 + emr / 100.0);
+
+          void toggleDay(DateTime day) {
+            if (_isSunday(day)) return;
+            final normalized = _dateOnly(day);
+
+            setLocal(() {
+              final exists = workedDays.any((d) => _sameDate(d, normalized));
+              if (exists) {
+                workedDays.removeWhere((d) => _sameDate(d, normalized));
+              } else {
+                workedDays.add(normalized);
+              }
+            });
+          }
 
           return AlertDialog(
             title: Text(
               existing == null
-                  ? 'Paguaj rrogë - ${worker.fullName}'
-                  : 'Ndrysho rrogë - ${worker.fullName}',
+                  ? 'Rroga mujore - ${worker.fullName}'
+                  : 'Ndrysho rrogën - ${worker.fullName}',
             ),
             content: SizedBox(
-              width: 560,
+              width: 860,
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (existing == null)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.blue.withOpacity(0.30),
+                          ),
+                        ),
+                        child: Text(
+                          'Për çdo muaj ruhet vetëm 1 rrogë. Nëse rroga ekziston për muajin e zgjedhur, ajo do të përditësohet.',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                      ),
                     Row(
                       children: [
                         Expanded(
@@ -390,7 +454,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
                             child: DropdownButtonHideUnderline(
                               child: DropdownButton<int>(
                                 value: month,
-                                isDense: true,
+                                isExpanded: true,
                                 items: List.generate(12, (i) {
                                   final m = i + 1;
                                   return DropdownMenuItem(
@@ -398,10 +462,37 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                     child: Text(_monthNames[i]),
                                   );
                                 }),
-                                onChanged: (v) {
-                                  if (v == null) return;
-                                  setLocal(() => month = v);
-                                },
+                                onChanged: lockToExistingMonth
+                                    ? null
+                                    : (v) async {
+                                        if (v == null) return;
+                                        month = v;
+                                        final monthEntry =
+                                            await findMonthEntry();
+
+                                        setLocal(() {
+                                          workedDays = _decodeWorkedDays(
+                                            monthEntry?.workedDaysJson,
+                                          ).map(_dateOnly).toSet();
+
+                                          dailyRateC.text = ((monthEntry
+                                                              ?.dailyRate ??
+                                                          worker.baseSalary) <=
+                                                      0
+                                                  ? 35
+                                                  : (monthEntry?.dailyRate ??
+                                                      worker.baseSalary))
+                                              .toStringAsFixed(2);
+
+                                          empPctC.text =
+                                              (monthEntry?.employeePct ?? 5)
+                                                  .toString();
+                                          emrPctC.text =
+                                              (monthEntry?.employerPct ?? 10)
+                                                  .toString();
+                                          noteC.text = monthEntry?.note ?? '';
+                                        });
+                                      },
                               ),
                             ),
                           ),
@@ -422,90 +513,22 @@ class _PunetoretPageState extends State<PunetoretPage> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    CheckboxListTile(
-                      value: dailyPay,
-                      onChanged: (v) {
-                        setLocal(() {
-                          dailyPay = v ?? false;
-                          if (dailyPay) {
-                            final days = _calcDaysInclusive(fromDate, toDate);
-                            if (days > 0) daysC.text = days.toString();
-                          }
-                        });
-                      },
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Paguaj në ditë (Custom Pay)'),
-                      subtitle: const Text(
-                        'P.sh. 35€ për 10 ditë, prej date në date.',
-                      ),
-                    ),
-                    if (dailyPay) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: pickFrom,
-                              icon: const Icon(Icons.date_range),
-                              label: Text('Prej: ${_fmtDate(fromDate)}'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: pickTo,
-                              icon: const Icon(Icons.event),
-                              label: Text('Deri: ${_fmtDate(toDate)}'),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: daysC,
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText:
-                                    'Sa ditë (auto nga datat ose shkruje vet)',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: customPayC,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
-                              decoration: const InputDecoration(
-                                labelText: 'Custom Pay (€)',
-                                border: OutlineInputBorder(),
-                              ),
-                              onChanged: (_) => setLocal(syncGrossFromCustom),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    TextField(
-                      controller: grossC,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Bruto (€)',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setLocal(() {}),
-                    ),
-                    const SizedBox(height: 12),
                     Row(
                       children: [
+                        Expanded(
+                          child: TextField(
+                            controller: dailyRateC,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Pagesa për ditë (€)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (_) => setLocal(() {}),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: TextField(
                             controller: empPctC,
@@ -543,11 +566,187 @@ class _PunetoretPageState extends State<PunetoretPage> {
                         border: OutlineInputBorder(),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(16),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.10)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Kalendar i punës (${_monthLabel(_ymFromYearMonth(year, month))})',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Kliko ditët që ka punu punëtori. E diela është ditë pushimi.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: Colors.white70),
+                          ),
+                          const SizedBox(height: 14),
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: 7 + leadingEmpty + daysInMonth,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 7,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                              childAspectRatio: 1.05,
+                            ),
+                            itemBuilder: (context, index) {
+                              const weekdays = [
+                                'HËN',
+                                'MAR',
+                                'MËR',
+                                'ENJ',
+                                'PRE',
+                                'SHT',
+                                'DIE',
+                              ];
+
+                              if (index < 7) {
+                                final isSundayHeader = index == 6;
+                                return Container(
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: isSundayHeader
+                                        ? Colors.red.withOpacity(0.12)
+                                        : Colors.white.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isSundayHeader
+                                          ? Colors.red.withOpacity(0.30)
+                                          : Colors.white.withOpacity(0.08),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    weekdays[index],
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: isSundayHeader
+                                          ? Colors.redAccent
+                                          : Colors.white70,
+                                    ),
+                                  ),
+                                );
+                              }
+
+                              final dayIndex = index - 7;
+                              if (dayIndex < leadingEmpty) {
+                                return const SizedBox.shrink();
+                              }
+
+                              final dayNumber = dayIndex - leadingEmpty + 1;
+                              if (dayNumber > daysInMonth) {
+                                return const SizedBox.shrink();
+                              }
+
+                              final day = DateTime(year, month, dayNumber);
+                              final isSunday = _isSunday(day);
+                              final isSelected =
+                                  workedDays.any((d) => _sameDate(d, day));
+
+                              final bgColor = isSunday
+                                  ? Colors.red.withOpacity(0.08)
+                                  : isSelected
+                                      ? Colors.green.withOpacity(0.20)
+                                      : Colors.white.withOpacity(0.04);
+
+                              final borderColor = isSunday
+                                  ? Colors.red.withOpacity(0.24)
+                                  : isSelected
+                                      ? Colors.green.withOpacity(0.45)
+                                      : Colors.white.withOpacity(0.08);
+
+                              final textColor = isSunday
+                                  ? Colors.redAccent
+                                  : isSelected
+                                      ? Colors.greenAccent
+                                      : Colors.white;
+
+                              return InkWell(
+                                onTap: isSunday ? null : () => toggleDay(day),
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: bgColor,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: borderColor),
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        '$dayNumber',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                          color: textColor,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        isSunday
+                                            ? 'Pushim'
+                                            : (isSelected ? 'Punë' : '—'),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: textColor.withOpacity(0.90),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
                       children: [
-                        Expanded(child: Text('Net: ${eur(net)}')),
-                        Expanded(child: Text('Kosto: ${eur(cost)}')),
+                        _MiniInfoBadge(
+                          label: 'Ditë të punuara',
+                          value: '$workedCount',
+                          icon: Icons.calendar_month,
+                        ),
+                        _MiniInfoBadge(
+                          label: 'Pagesa / ditë',
+                          value: eur(dailyRate),
+                          icon: Icons.euro,
+                        ),
+                        _MiniInfoBadge(
+                          label: 'Bruto',
+                          value: eur(gross),
+                          icon: Icons.account_balance_wallet,
+                          highlightGreen: true,
+                        ),
+                        _MiniInfoBadge(
+                          label: 'Neto',
+                          value: eur(net),
+                          icon: Icons.payments,
+                        ),
+                        _MiniInfoBadge(
+                          label: 'Kosto firmës',
+                          value: eur(cost),
+                          icon: Icons.business_center,
+                        ),
                       ],
                     ),
                   ],
@@ -561,7 +760,8 @@ class _PunetoretPageState extends State<PunetoretPage> {
               ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: Text(existing == null ? 'Paguaj' : 'Ruaj'),
+                child:
+                    Text(existing == null ? 'Ruaj rrogën' : 'Ruaj ndryshimet'),
               ),
             ],
           );
@@ -572,40 +772,27 @@ class _PunetoretPageState extends State<PunetoretPage> {
     if (ok != true) return;
 
     final ym = _ymFromYearMonth(year, month);
-
-    final customPay = double.tryParse(customPayC.text.replaceAll(',', '.'));
-    if (dailyPay && customPay != null) {
-      grossC.text = customPay.toStringAsFixed(2);
-      final days =
-          int.tryParse(daysC.text) ?? _calcDaysInclusive(fromDate, toDate);
-      final tag =
-          'DailyPay: ${customPay.toStringAsFixed(2)}€ | $days ditë | ${_fmtDate(fromDate)} → ${_fmtDate(toDate)}';
-      final base = noteC.text.trim();
-      noteC.text = base.isEmpty ? tag : '$base | $tag';
-    }
+    final dailyRate =
+        double.tryParse(dailyRateC.text.replaceAll(',', '.')) ?? 0;
+    final gross = dailyRate * workedDays.length;
 
     final model = PayrollEntry(
       id: existing?.id,
       workerId: worker.id!,
       month: ym,
-      grossSalary: double.tryParse(grossC.text.replaceAll(',', '.')) ?? 0,
+      grossSalary: gross,
       employeePct: double.tryParse(empPctC.text.replaceAll(',', '.')) ?? 0,
       employerPct: double.tryParse(emrPctC.text.replaceAll(',', '.')) ?? 0,
       note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
+      dailyRate: dailyRate,
+      workedDaysJson: PayrollEntry.encodeWorkedDays(workedDays),
     );
 
-    if (existing == null) {
-      await PayrollDao.I.insert(model);
-    } else {
-      await PayrollDao.I.update(model);
-    }
+    await PayrollDao.I.upsertByWorkerMonth(model);
   }
-
-  // ==================== PDF ====================
 
   Future<void> _exportPdfForWorker(Worker w) async {
     final rows = _entriesForWorker(w).map((e) => PayrollPdfRow(w, e)).toList();
-
     await _savePdf(
       title: 'Rrogat - ${w.fullName} (${w.position})',
       rows: rows,
@@ -620,7 +807,6 @@ class _PunetoretPageState extends State<PunetoretPage> {
         rows.add(PayrollPdfRow(w, e));
       }
     }
-
     await _savePdf(
       title: 'Raport Rrogash - Krejt Punëtorët',
       rows: rows,
@@ -643,6 +829,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
         XTypeGroup(label: 'PDF', extensions: ['pdf']),
       ],
     );
+
     if (loc == null) return;
 
     final file = File(loc.path);
@@ -665,7 +852,11 @@ class _PunetoretPageState extends State<PunetoretPage> {
             required Worker worker,
             PayrollEntry? existing,
           }) async {
-            await _openPayrollEditor(worker: worker, existing: existing);
+            await _openPayrollEditor(
+              worker: worker,
+              existing: existing,
+              lockToExistingMonth: existing != null,
+            );
           },
           deletePayroll: (int id) async {
             await PayrollDao.I.delete(id);
@@ -675,7 +866,6 @@ class _PunetoretPageState extends State<PunetoretPage> {
         ),
       ),
     );
-
     await _loadWorkers();
   }
 
@@ -689,8 +879,6 @@ class _PunetoretPageState extends State<PunetoretPage> {
       }
     });
   }
-
-  // ==================== UI ====================
 
   @override
   Widget build(BuildContext context) {
@@ -740,6 +928,8 @@ class _PunetoretPageState extends State<PunetoretPage> {
                     final latest = _latestPayrollForWorker(w);
                     final showStats =
                         w.id != null && expandedStatsWorkerIds.contains(w.id!);
+                    final currentMonthEntry = _entryForWorkerMonth(w, _ymNow());
+                    final hasCurrentMonthPayroll = currentMonthEntry != null;
 
                     return Container(
                       padding: const EdgeInsets.all(14),
@@ -796,7 +986,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '${w.position} • Rroga bazë: ${eur(w.baseSalary)}',
+                                          '${w.position} • Pagesa / ditë: ${eur(w.baseSalary)}',
                                           style: Theme.of(context)
                                               .textTheme
                                               .bodyMedium
@@ -807,7 +997,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                         if (latest != null) ...[
                                           const SizedBox(height: 4),
                                           Text(
-                                            'Pagesa e fundit: ${_monthLabel(latest.month)} • Neto ${eur(latest.netSalary)}',
+                                            'Muaji i fundit: ${_monthLabel(latest.month)} • ${latest.workedDaysCount} ditë • Neto ${eur(latest.netSalary)}',
                                             style: Theme.of(context)
                                                 .textTheme
                                                 .bodySmall
@@ -827,9 +1017,31 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                 runSpacing: 8,
                                 children: [
                                   ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: hasCurrentMonthPayroll
+                                          ? Colors.green.shade700
+                                          : null,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      elevation: hasCurrentMonthPayroll ? 4 : 1,
+                                    ),
                                     onPressed: () => _payNowForWorker(w),
-                                    icon: const Icon(Icons.payments),
-                                    label: const Text('PAGUAJ'),
+                                    icon: Icon(
+                                      hasCurrentMonthPayroll
+                                          ? Icons.edit_calendar
+                                          : Icons.payments,
+                                    ),
+                                    label: Text(
+                                      hasCurrentMonthPayroll
+                                          ? 'NDRYSHO KËTË MUAJ'
+                                          : 'PAGUAJ',
+                                    ),
                                   ),
                                   OutlinedButton.icon(
                                     onPressed: () => _toggleStats(w),
@@ -860,14 +1072,20 @@ class _PunetoretPageState extends State<PunetoretPage> {
                               runSpacing: 12,
                               children: [
                                 _MiniInfoBadge(
-                                  label: 'Pagesa',
+                                  label: 'Muaj të ruajtur',
                                   value: '${_entriesForWorker(w).length}',
                                   icon: Icons.receipt_long,
+                                ),
+                                _MiniInfoBadge(
+                                  label: 'Ditë pune',
+                                  value: '${_workedDaysForWorker(w)}',
+                                  icon: Icons.calendar_month,
                                 ),
                                 _MiniInfoBadge(
                                   label: 'Bruto',
                                   value: eur(_grossForWorker(w)),
                                   icon: Icons.account_balance_wallet,
+                                  highlightGreen: true,
                                 ),
                                 _MiniInfoBadge(
                                   label: 'Neto',
@@ -907,14 +1125,20 @@ class _PunetoretPageState extends State<PunetoretPage> {
                 icon: Icons.groups,
               ),
               _TotalInfoCard(
-                title: 'Totali pagesave',
+                title: 'Totali muajve',
                 value: '$_totalPayrollRowsAll',
                 icon: Icons.receipt_long,
+              ),
+              _TotalInfoCard(
+                title: 'Totali ditëve',
+                value: '$_totalWorkedDaysAll',
+                icon: Icons.calendar_month,
               ),
               _TotalInfoCard(
                 title: 'Totali Bruto',
                 value: eur(_totalGrossAll),
                 icon: Icons.account_balance_wallet,
+                highlightGreen: true,
               ),
               _TotalInfoCard(
                 title: 'Totali Neto',
@@ -981,11 +1205,20 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
     super.dispose();
   }
 
+  String _ymNow() {
+    final d = DateTime.now();
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _load() async {
     setState(() => loading = true);
+
     payroll = widget.worker.id == null
         ? []
         : await PayrollDao.I.listForWorker(widget.worker.id!);
+
+    payroll.sort((a, b) => b.month.compareTo(a.month));
+
     if (mounted) {
       setState(() => loading = false);
     }
@@ -1003,13 +1236,38 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
     return payroll.fold(0.0, (sum, e) => sum + e.employerCost);
   }
 
+  int get _totalWorkedDays {
+    return payroll.fold(0, (sum, e) => sum + e.workedDaysCount);
+  }
+
+  PayrollEntry? get _currentMonthPayroll {
+    final ym = _ymNow();
+    for (final e in payroll) {
+      if (e.month == ym) return e;
+    }
+    return null;
+  }
+
   Future<void> _editPayroll(PayrollEntry entry) async {
     await widget.openPayrollEditor(worker: widget.worker, existing: entry);
     await _load();
   }
 
   Future<void> _payNow() async {
-    await widget.openPayrollEditor(worker: widget.worker, existing: null);
+    final current = _currentMonthPayroll;
+
+    if (current != null) {
+      await widget.openPayrollEditor(
+        worker: widget.worker,
+        existing: current,
+      );
+    } else {
+      await widget.openPayrollEditor(
+        worker: widget.worker,
+        existing: null,
+      );
+    }
+
     await _load();
   }
 
@@ -1020,7 +1278,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Fshij rrogën'),
-        content: const Text('A je i sigurt që don me fshi këtë pagesë/rrogë?'),
+        content: const Text('A je i sigurt që don me fshi këtë muaj/rrogë?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1054,6 +1312,8 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
   @override
   Widget build(BuildContext context) {
     final w = widget.worker;
+    final currentMonthPayroll = _currentMonthPayroll;
+    final hasCurrentMonthPayroll = currentMonthPayroll != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -1075,11 +1335,25 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                   margin: const EdgeInsets.all(16),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(18),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withOpacity(0.08),
+                        Colors.white.withOpacity(0.03),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: Colors.white.withOpacity(0.10),
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                   ),
                   child: Column(
                     children: [
@@ -1113,7 +1387,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${w.position} • Rroga bazë: ${eur(w.baseSalary)}',
+                                  '${w.position} • Pagesa / ditë: ${eur(w.baseSalary)}',
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodyLarge
@@ -1127,9 +1401,31 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                             runSpacing: 8,
                             children: [
                               ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: hasCurrentMonthPayroll
+                                      ? Colors.green.shade700
+                                      : null,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: hasCurrentMonthPayroll ? 4 : 1,
+                                ),
                                 onPressed: _payNow,
-                                icon: const Icon(Icons.payments),
-                                label: const Text('PAGUAJ'),
+                                icon: Icon(
+                                  hasCurrentMonthPayroll
+                                      ? Icons.edit_calendar
+                                      : Icons.payments,
+                                ),
+                                label: Text(
+                                  hasCurrentMonthPayroll
+                                      ? 'NDRYSHO KËTË MUAJ'
+                                      : 'PAGUAJ',
+                                ),
                               ),
                               OutlinedButton.icon(
                                 onPressed: () =>
@@ -1156,9 +1452,15 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                         runSpacing: 12,
                         children: [
                           _TotalInfoCard(
+                            title: 'Ditë pune',
+                            value: '$_totalWorkedDays',
+                            icon: Icons.calendar_month,
+                          ),
+                          _TotalInfoCard(
                             title: 'Totali Bruto',
                             value: eur(_totalGross),
                             icon: Icons.account_balance_wallet,
+                            highlightGreen: true,
                           ),
                           _TotalInfoCard(
                             title: 'Totali Neto',
@@ -1185,7 +1487,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                           child: payroll.isEmpty
                               ? Center(
                                   child: Text(
-                                    'Ky punëtor nuk ka ende pagesa/rroga.',
+                                    'Ky punëtor nuk ka ende rroga mujore.',
                                     style:
                                         Theme.of(context).textTheme.titleMedium,
                                   ),
@@ -1199,13 +1501,29 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                                           minWidth: constraints.maxWidth,
                                         ),
                                         child: DataTable(
+                                          dataRowMinHeight: 64,
+                                          dataRowMaxHeight: 76,
+                                          headingRowHeight: 56,
+                                          columnSpacing: 20,
+                                          horizontalMargin: 12,
+                                          headingTextStyle: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                          ),
+                                          dataTextStyle: const TextStyle(
+                                            color: Colors.white,
+                                          ),
                                           columns: const [
                                             DataColumn(label: Text('Muaji')),
+                                            DataColumn(label: Text('Ditë')),
+                                            DataColumn(label: Text('€/ditë')),
                                             DataColumn(label: Text('Bruto')),
                                             DataColumn(
-                                                label: Text('Net (punëtori)')),
+                                              label: Text('Net (punëtori)'),
+                                            ),
                                             DataColumn(
-                                                label: Text('Kosto (firma)')),
+                                              label: Text('Kosto (firma)'),
+                                            ),
                                             DataColumn(label: Text('Shënim')),
                                             DataColumn(label: Text('Veprime')),
                                           ],
@@ -1215,12 +1533,20 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                                                 DataCell(
                                                   _MonthBadge(
                                                     widget.monthLabelBuilder(
-                                                        e.month),
+                                                      e.month,
+                                                    ),
                                                   ),
+                                                ),
+                                                DataCell(
+                                                  Text('${e.workedDaysCount}'),
+                                                ),
+                                                DataCell(
+                                                  _MoneyBadge(eur(e.dailyRate)),
                                                 ),
                                                 DataCell(
                                                   _MoneyBadge(
                                                     eur(e.grossSalary),
+                                                    highlightStrong: true,
                                                   ),
                                                 ),
                                                 DataCell(
@@ -1248,24 +1574,76 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                                                   ),
                                                 ),
                                                 DataCell(
-                                                  Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
+                                                  Wrap(
+                                                    spacing: 8,
+                                                    runSpacing: 8,
                                                     children: [
-                                                      IconButton(
-                                                        tooltip: 'Ndrysho',
-                                                        icon: const Icon(
-                                                            Icons.edit),
+                                                      ElevatedButton.icon(
+                                                        style: ElevatedButton
+                                                            .styleFrom(
+                                                          backgroundColor:
+                                                              Colors.green
+                                                                  .shade700,
+                                                          foregroundColor:
+                                                              Colors.white,
+                                                          elevation: 3,
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                            horizontal: 14,
+                                                            vertical: 12,
+                                                          ),
+                                                          shape:
+                                                              RoundedRectangleBorder(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                              12,
+                                                            ),
+                                                          ),
+                                                        ),
                                                         onPressed: () =>
                                                             _editPayroll(e),
-                                                      ),
-                                                      IconButton(
-                                                        tooltip: 'Fshij',
                                                         icon: const Icon(
-                                                            Icons.delete),
+                                                          Icons.edit,
+                                                          size: 18,
+                                                        ),
+                                                        label: const Text(
+                                                            'Ndrysho'),
+                                                      ),
+                                                      ElevatedButton.icon(
+                                                        style: ElevatedButton
+                                                            .styleFrom(
+                                                          backgroundColor:
+                                                              Colors
+                                                                  .red.shade700,
+                                                          foregroundColor:
+                                                              Colors.white,
+                                                          elevation: 3,
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .symmetric(
+                                                            horizontal: 14,
+                                                            vertical: 12,
+                                                          ),
+                                                          shape:
+                                                              RoundedRectangleBorder(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                              12,
+                                                            ),
+                                                          ),
+                                                        ),
                                                         onPressed: () =>
                                                             _deletePayrollRow(
                                                                 e),
+                                                        icon: const Icon(
+                                                          Icons.delete_outline,
+                                                          size: 18,
+                                                        ),
+                                                        label:
+                                                            const Text('Fshij'),
                                                       ),
                                                     ],
                                                   ),
@@ -1305,8 +1683,11 @@ class WorkerAdvancesTab extends StatefulWidget {
 class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
   bool loading = true;
   String? errorText;
-
   List<WorkerAdvance> advances = [];
+  PayrollEntry? currentPayrollForMonth;
+
+  double carriedDebtFromPreviousMonths = 0.0;
+  double debtToCarryNextMonth = 0.0;
 
   late int selectedYear;
   late int selectedMonth;
@@ -1341,10 +1722,8 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
   String _monthLabel(String ym) {
     final parts = ym.split('-');
     if (parts.length < 2) return ym;
-
     final mm = int.tryParse(parts[1]) ?? 0;
     final yy = int.tryParse(parts[0]) ?? DateTime.now().year;
-
     if (mm < 1 || mm > 12) return ym;
     return '${_monthNames[mm - 1]} $yy';
   }
@@ -1367,12 +1746,69 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
         .trim();
   }
 
+  int _compareYm(String a, String b) {
+    return a.compareTo(b);
+  }
+
+  Map<String, double> _sumAdvancesByMonth(List<WorkerAdvance> list) {
+    final map = <String, double>{};
+    for (final item in list) {
+      map[item.month] = (map[item.month] ?? 0.0) + item.amount;
+    }
+    return map;
+  }
+
+  Map<String, double> _grossByMonth(List<PayrollEntry> list) {
+    final map = <String, double>{};
+    for (final item in list) {
+      map[item.month] = item.grossSalary;
+    }
+    return map;
+  }
+
+  double _calculateDebtBeforeMonth({
+    required List<PayrollEntry> payrollList,
+    required List<WorkerAdvance> advancesList,
+    required String targetYm,
+  }) {
+    final grossMap = _grossByMonth(payrollList);
+    final advanceMap = _sumAdvancesByMonth(advancesList);
+
+    final allMonths = <String>{
+      ...grossMap.keys,
+      ...advanceMap.keys,
+    }.toList()
+      ..sort();
+
+    double debt = 0.0;
+
+    for (final ym in allMonths) {
+      if (_compareYm(ym, targetYm) >= 0) break;
+
+      final gross = grossMap[ym] ?? 0.0;
+      final adv = advanceMap[ym] ?? 0.0;
+
+      final remainingAfterMonth = gross - debt - adv;
+
+      if (remainingAfterMonth >= 0) {
+        debt = 0.0;
+      } else {
+        debt = remainingAfterMonth.abs();
+      }
+    }
+
+    return debt;
+  }
+
   Future<void> _loadAdvances() async {
     if (widget.worker.id == null) {
       if (!mounted) return;
       setState(() {
         loading = false;
         advances = [];
+        currentPayrollForMonth = null;
+        carriedDebtFromPreviousMonths = 0.0;
+        debtToCarryNextMonth = 0.0;
       });
       return;
     }
@@ -1390,9 +1826,38 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
         selectedYm,
       );
 
+      final payroll = await PayrollDao.I.findForWorkerMonth(
+        widget.worker.id!,
+        selectedYm,
+      );
+
+      final allPayroll = await PayrollDao.I.listForWorker(widget.worker.id!);
+
+      final allAdvances = await WorkerAdvancesDao.I.listForWorker(
+        widget.worker.id!,
+      );
+
+      final previousDebt = _calculateDebtBeforeMonth(
+        payrollList: allPayroll,
+        advancesList: allAdvances,
+        targetYm: selectedYm,
+      );
+
+      final currentMonthGross = payroll?.grossSalary ?? 0.0;
+      final currentMonthAdvances =
+          list.fold(0.0, (sum, item) => sum + item.amount);
+
+      final carryNext = math.max(
+        0.0,
+        previousDebt + currentMonthAdvances - currentMonthGross,
+      );
+
       if (!mounted) return;
       setState(() {
         advances = list;
+        currentPayrollForMonth = payroll;
+        carriedDebtFromPreviousMonths = previousDebt;
+        debtToCarryNextMonth = carryNext;
         loading = false;
       });
     } catch (e) {
@@ -1404,17 +1869,20 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
     }
   }
 
-  double get _baseSalary => widget.worker.baseSalary;
+  double get _monthGrossSalary => currentPayrollForMonth?.grossSalary ?? 0.0;
 
   double get _totalAdvances {
     return advances.fold(0.0, (sum, e) => sum + e.amount);
   }
 
   double get _remainingSalary {
-    return _baseSalary - _totalAdvances;
+    return math.max(
+      0.0,
+      _monthGrossSalary - carriedDebtFromPreviousMonths - _totalAdvances,
+    );
   }
 
-  bool get _isRemainingNegative => _remainingSalary < 0;
+  bool get _isRemainingNegative => false;
 
   Future<void> _pickMonthYear() async {
     int tempMonth = selectedMonth;
@@ -1484,7 +1952,6 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
 
     selectedMonth = tempMonth;
     selectedYear = int.tryParse(yearC.text.trim()) ?? DateTime.now().year;
-
     await _loadAdvances();
   }
 
@@ -1503,6 +1970,22 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (currentPayrollForMonth == null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: Colors.orange.withOpacity(0.30),
+                    ),
+                  ),
+                  child: const Text(
+                    'Për këtë muaj nuk ka ende rrogë të regjistruar. Avancat do të ruhen dhe nëse e kalojnë rrogën, diferenca bartet për muajin tjetër.',
+                  ),
+                ),
               TextField(
                 controller: amountC,
                 keyboardType:
@@ -1734,20 +2217,35 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
           pw.Row(
             children: [
               _pdfSummaryCard(
-                title: 'Rroga bazë',
-                value: _fmtPdfMoney(_baseSalary),
+                title: 'Totali Bruto',
+                value: _fmtPdfMoney(_monthGrossSalary),
+                highlight: true,
+              ),
+              pw.SizedBox(width: 10),
+              _pdfSummaryCard(
+                title: 'Borxhi i bartur',
+                value: _fmtPdfMoney(carriedDebtFromPreviousMonths),
               ),
               pw.SizedBox(width: 10),
               _pdfSummaryCard(
                 title: 'Gjithsej avancë',
                 value: _fmtPdfMoney(_totalAdvances),
               ),
-              pw.SizedBox(width: 10),
+            ],
+          ),
+          pw.SizedBox(height: 10),
+          pw.Row(
+            children: [
               _pdfSummaryCard(
                 title: 'I mbesin pa marrë',
                 value: _fmtPdfMoney(_remainingSalary),
-                highlight: !_isRemainingNegative,
-                negative: _isRemainingNegative,
+                highlight: true,
+              ),
+              pw.SizedBox(width: 10),
+              _pdfSummaryCard(
+                title: 'Bartet muajin tjetër',
+                value: _fmtPdfMoney(debtToCarryNextMonth),
+                negative: debtToCarryNextMonth > 0,
               ),
             ],
           ),
@@ -1829,11 +2327,9 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
     final bgColor = negative
         ? PdfColors.red50
         : (highlight ? PdfColors.green50 : PdfColors.grey100);
-
     final borderColor = negative
         ? PdfColors.red300
         : (highlight ? PdfColors.green300 : PdfColors.grey400);
-
     final valueColor = negative
         ? PdfColors.red800
         : (highlight ? PdfColors.green800 : PdfColors.black);
@@ -1914,7 +2410,6 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
   Future<void> _previewPdf() async {
     try {
       final bytes = await _buildPdfBytes();
-
       await Printing.layoutPdf(
         onLayout: (_) async => bytes,
         name: 'avancat_${_safeFileName(widget.worker.fullName)}_$selectedYm',
@@ -2010,9 +2505,15 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
             runSpacing: 12,
             children: [
               _AdvanceInfoCard(
-                title: 'Rroga bazë',
-                value: eur(_baseSalary),
+                title: 'Totali Bruto',
+                value: eur(_monthGrossSalary),
                 icon: Icons.account_balance_wallet,
+                highlight: true,
+              ),
+              _AdvanceInfoCard(
+                title: 'Borxhi i bartur',
+                value: eur(carriedDebtFromPreviousMonths),
+                icon: Icons.history,
               ),
               _AdvanceInfoCard(
                 title: 'Gjithsej avancë',
@@ -2023,12 +2524,34 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
                 title: 'I mbesin pa marrë',
                 value: eur(_remainingSalary),
                 icon: Icons.payments,
-                highlight: !_isRemainingNegative,
-                negative: _isRemainingNegative,
+                highlight: true,
+              ),
+              _AdvanceInfoCard(
+                title: 'Bartet muajin tjetër',
+                value: eur(debtToCarryNextMonth),
+                icon: Icons.redo,
+                negative: debtToCarryNextMonth > 0,
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          if (currentPayrollForMonth == null)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Colors.orange.withOpacity(0.30),
+                ),
+              ),
+              child: Text(
+                'Për ${_monthLabel(selectedYm)} nuk ka ende rrogë të regjistruar. Totali Bruto aktualisht është 0.00 € derisa të ruhet rroga e muajit. Nëse ka avancë më shumë se rroga, diferenca bartet për muajin tjetër.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
           Expanded(
             child: Card(
               child: advances.isEmpty
@@ -2047,6 +2570,18 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
                               minWidth: constraints.maxWidth,
                             ),
                             child: DataTable(
+                              dataRowMinHeight: 64,
+                              dataRowMaxHeight: 76,
+                              headingRowHeight: 56,
+                              columnSpacing: 20,
+                              horizontalMargin: 12,
+                              headingTextStyle: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                              dataTextStyle: const TextStyle(
+                                color: Colors.white,
+                              ),
                               columns: const [
                                 DataColumn(label: Text('Data')),
                                 DataColumn(label: Text('Muaji')),
@@ -2062,18 +2597,55 @@ class _WorkerAdvancesTabState extends State<WorkerAdvancesTab> {
                                     DataCell(_AdvanceMoneyBadge(eur(e.amount))),
                                     DataCell(Text(e.note ?? '—')),
                                     DataCell(
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
                                         children: [
-                                          IconButton(
-                                            tooltip: 'Ndrysho',
-                                            icon: const Icon(Icons.edit),
+                                          ElevatedButton.icon(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  Colors.green.shade700,
+                                              foregroundColor: Colors.white,
+                                              elevation: 3,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 14,
+                                                vertical: 12,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                            ),
                                             onPressed: () => _editAdvance(e),
+                                            icon: const Icon(
+                                              Icons.edit,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Ndrysho'),
                                           ),
-                                          IconButton(
-                                            tooltip: 'Fshij',
-                                            icon: const Icon(Icons.delete),
+                                          ElevatedButton.icon(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  Colors.red.shade700,
+                                              foregroundColor: Colors.white,
+                                              elevation: 3,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 14,
+                                                vertical: 12,
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                            ),
                                             onPressed: () => _deleteAdvance(e),
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                              size: 18,
+                                            ),
+                                            label: const Text('Fshij'),
                                           ),
                                         ],
                                       ),
@@ -2121,22 +2693,52 @@ class _MonthBadge extends StatelessWidget {
 
 class _MoneyBadge extends StatelessWidget {
   final String text;
-  const _MoneyBadge(this.text);
+  final bool highlightStrong;
+
+  const _MoneyBadge(
+    this.text, {
+    this.highlightStrong = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.18),
+        gradient: highlightStrong
+            ? LinearGradient(
+                colors: [
+                  Colors.green.shade800,
+                  Colors.green.shade600,
+                ],
+              )
+            : LinearGradient(
+                colors: [
+                  Colors.green.withOpacity(0.18),
+                  Colors.green.withOpacity(0.12),
+                ],
+              ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green.withOpacity(0.35)),
+        border: Border.all(
+          color: highlightStrong
+              ? Colors.greenAccent.withOpacity(0.45)
+              : Colors.green.withOpacity(0.25),
+        ),
+        boxShadow: highlightStrong
+            ? [
+                BoxShadow(
+                  color: Colors.green.withOpacity(0.30),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : null,
       ),
       child: Text(
         text,
         style: Theme.of(context).textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w800,
-              color: Colors.greenAccent,
+              color: Colors.white,
             ),
       ),
     );
@@ -2171,22 +2773,41 @@ class _MiniInfoBadge extends StatelessWidget {
   final String label;
   final String value;
   final IconData icon;
+  final bool highlightGreen;
 
   const _MiniInfoBadge({
     required this.label,
     required this.value,
     required this.icon,
+    this.highlightGreen = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = highlightGreen
+        ? Colors.green.withOpacity(0.12)
+        : Colors.white.withOpacity(0.04);
+
+    final borderColor = highlightGreen
+        ? Colors.greenAccent.withOpacity(0.45)
+        : Colors.white.withOpacity(0.08);
+
     return Container(
       constraints: const BoxConstraints(minWidth: 150),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.04),
+        color: bgColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderColor),
+        boxShadow: highlightGreen
+            ? [
+                BoxShadow(
+                  color: Colors.green.withOpacity(0.22),
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2198,6 +2819,7 @@ class _MiniInfoBadge extends StatelessWidget {
               '$label: $value',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w700,
+                    color: highlightGreen ? Colors.greenAccent : Colors.white,
                   ),
             ),
           ),
@@ -2211,30 +2833,77 @@ class _TotalInfoCard extends StatelessWidget {
   final String title;
   final String value;
   final IconData icon;
+  final bool highlightGreen;
 
   const _TotalInfoCard({
     required this.title,
     required this.value,
     required this.icon,
+    this.highlightGreen = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final bgGradient = highlightGreen
+        ? [
+            Colors.green.shade900.withOpacity(0.95),
+            Colors.green.shade700.withOpacity(0.90),
+          ]
+        : [
+            Colors.white.withOpacity(0.07),
+            Colors.white.withOpacity(0.04),
+          ];
+
+    final borderColor = highlightGreen
+        ? Colors.greenAccent.withOpacity(0.45)
+        : Colors.white.withOpacity(0.10);
+
+    final avatarBg = highlightGreen
+        ? Colors.white.withOpacity(0.12)
+        : Colors.green.withOpacity(0.16);
+
+    final iconColor = highlightGreen ? Colors.white : Colors.greenAccent;
+    final titleColor = highlightGreen ? Colors.white70 : Colors.white70;
+    final valueColor = highlightGreen ? Colors.white : Colors.white;
+
     return Container(
-      constraints: const BoxConstraints(minWidth: 220),
-      padding: const EdgeInsets.all(12),
+      constraints: const BoxConstraints(minWidth: 235),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: bgGradient,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+        boxShadow: highlightGreen
+            ? [
+                BoxShadow(
+                  color: Colors.green.withOpacity(0.35),
+                  blurRadius: 24,
+                  offset: const Offset(0, 10),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.10),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: Colors.green.withOpacity(0.16),
-            child: Icon(icon, color: Colors.greenAccent),
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: avatarBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: iconColor),
           ),
           const SizedBox(width: 12),
           Column(
@@ -2244,7 +2913,7 @@ class _TotalInfoCard extends StatelessWidget {
               Text(
                 title,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
+                      color: titleColor,
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -2252,8 +2921,9 @@ class _TotalInfoCard extends StatelessWidget {
               Text(
                 value,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      color: valueColor,
+                      letterSpacing: 0.2,
                     ),
               ),
             ],
@@ -2281,20 +2951,20 @@ class _AdvanceInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = negative
-        ? Colors.red.withOpacity(0.45)
-        : highlight
-            ? Colors.green.withOpacity(0.40)
-            : Colors.white.withOpacity(0.10);
-
     final bgColor = negative
-        ? Colors.red.withOpacity(0.10)
+        ? Colors.red.shade900.withOpacity(0.20)
         : highlight
-            ? Colors.green.withOpacity(0.10)
+            ? Colors.green.shade900.withOpacity(0.25)
             : Colors.white.withOpacity(0.05);
 
-    final avatarBg = negative
-        ? Colors.red.withOpacity(0.18)
+    final borderColor = negative
+        ? Colors.redAccent.withOpacity(0.45)
+        : highlight
+            ? Colors.greenAccent.withOpacity(0.35)
+            : Colors.white.withOpacity(0.10);
+
+    final iconBg = negative
+        ? Colors.red.withOpacity(0.16)
         : highlight
             ? Colors.green.withOpacity(0.18)
             : Colors.white.withOpacity(0.08);
@@ -2312,19 +2982,30 @@ class _AdvanceInfoCard extends StatelessWidget {
             : Colors.white;
 
     return Container(
-      constraints: const BoxConstraints(minWidth: 220),
-      padding: const EdgeInsets.all(12),
+      constraints: const BoxConstraints(minWidth: 235),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: (negative ? Colors.red : Colors.black).withOpacity(0.12),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: avatarBg,
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
             child: Icon(icon, color: iconColor),
           ),
           const SizedBox(width: 12),
@@ -2343,7 +3024,7 @@ class _AdvanceInfoCard extends StatelessWidget {
               Text(
                 value,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w900,
                       color: valueColor,
                     ),
               ),

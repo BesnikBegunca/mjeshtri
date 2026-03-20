@@ -2,15 +2,15 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 ; Non-commercial use only
 
-#define MyAppName "My Program"
+#define MyAppName "Mjeshtri"
 #define MyAppVersion "2.0"
-#define MyAppPublisher "FIKSHI, Inc."
+#define MyAppPublisher "Fikshi,Inc."
 #define MyAppExeName "mjeshtri.exe"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{7CE14CE5-6643-47B3-B3C8-20EFFE22A775}
+AppId={{2FA855DA-2E8F-4B06-A0F3-689D108CEEB0}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 ;AppVerName={#MyAppName} {#MyAppVersion}
@@ -34,7 +34,7 @@ SetupIconFile=C:\Users\PC\Downloads\icon.ico
 Password=mjeshtri
 Encryption=yes
 SolidCompression=yes
-WizardStyle=modern windows11
+WizardStyle=modern dark windows11
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

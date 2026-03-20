@@ -32,7 +32,7 @@ class AppDb {
 
     db = await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onConfigure: (d) async {
         await d.execute('PRAGMA foreign_keys = ON;');
       },
@@ -86,6 +86,8 @@ class AppDb {
             employeePct REAL NOT NULL,
             employerPct REAL NOT NULL,
             note TEXT,
+            dailyRate REAL NOT NULL DEFAULT 0,
+            workedDaysJson TEXT,
             FOREIGN KEY(workerId) REFERENCES workers(id) ON DELETE CASCADE
           );
         ''');
@@ -322,6 +324,22 @@ class AppDb {
             'jobs',
             'completedAt',
             "ALTER TABLE jobs ADD COLUMN completedAt TEXT;",
+          );
+        }
+
+        if (oldV < 11) {
+          await _safeAddColumn(
+            d,
+            'payroll_entries',
+            'dailyRate',
+            "ALTER TABLE payroll_entries ADD COLUMN dailyRate REAL NOT NULL DEFAULT 0;",
+          );
+
+          await _safeAddColumn(
+            d,
+            'payroll_entries',
+            'workedDaysJson',
+            "ALTER TABLE payroll_entries ADD COLUMN workedDaysJson TEXT;",
           );
         }
       },

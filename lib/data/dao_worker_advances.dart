@@ -39,13 +39,15 @@ class WorkerAdvancesDao {
       'worker_advances',
       where: 'workerId = ?',
       whereArgs: [workerId],
-      orderBy: 'createdAt DESC, id DESC',
+      orderBy: 'month ASC, createdAt ASC, id ASC',
     );
     return rows.map((e) => WorkerAdvance.fromMap(e)).toList();
   }
 
   Future<List<WorkerAdvance>> listForWorkerMonth(
-      int workerId, String month) async {
+    int workerId,
+    String month,
+  ) async {
     final db = await _db;
     final rows = await db.query(
       'worker_advances',
@@ -69,6 +71,39 @@ class WorkerAdvancesDao {
 
     if (rows.isEmpty) return 0;
     return ((rows.first['total'] as num?) ?? 0).toDouble();
+  }
+
+  Future<double> totalForWorker(int workerId) async {
+    final db = await _db;
+    final rows = await db.rawQuery(
+      '''
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM worker_advances
+      WHERE workerId = ?
+      ''',
+      [workerId],
+    );
+
+    if (rows.isEmpty) return 0;
+    return ((rows.first['total'] as num?) ?? 0).toDouble();
+  }
+
+  Future<List<String>> monthsForWorker(int workerId) async {
+    final db = await _db;
+    final rows = await db.rawQuery(
+      '''
+      SELECT DISTINCT month
+      FROM worker_advances
+      WHERE workerId = ?
+      ORDER BY month ASC
+      ''',
+      [workerId],
+    );
+
+    return rows
+        .map((e) => (e['month']?.toString() ?? '').trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
   }
 
   Future<void> deleteForWorker(int workerId) async {

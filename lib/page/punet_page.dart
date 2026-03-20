@@ -389,9 +389,8 @@ class _PunetPageState extends State<PunetPage> {
     Worker selectedWorker = workers.first;
     final daysC = TextEditingController(text: '1');
     final dailyRateC = TextEditingController(
-      text:
-          ((selectedWorker.baseSalary > 0 ? selectedWorker.baseSalary / 26 : 0))
-              .toStringAsFixed(2),
+      text: (selectedWorker.baseSalary > 0 ? selectedWorker.baseSalary : 0)
+          .toStringAsFixed(2),
     );
     final noteC = TextEditingController();
 
@@ -441,9 +440,9 @@ class _PunetPageState extends State<PunetPage> {
 
                       setLocal(() {
                         selectedWorker = found;
-                        dailyRateC.text = ((selectedWorker.baseSalary > 0
-                                ? selectedWorker.baseSalary / 26
-                                : 0))
+                        dailyRateC.text = (selectedWorker.baseSalary > 0
+                                ? selectedWorker.baseSalary
+                                : 0)
                             .toStringAsFixed(2);
                       });
                     },
