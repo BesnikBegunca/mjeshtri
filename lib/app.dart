@@ -60,12 +60,12 @@ class _ShellState extends State<Shell> {
               NavigationRailDestination(
                 icon: Icon(Icons.calculate_outlined),
                 selectedIcon: Icon(Icons.calculate),
-                label: Text('Kalkulo'),
+                label: Text('Materiali'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.tune_outlined),
                 selectedIcon: Icon(Icons.tune),
-                label: Text('Parametrat'),
+                label: Text('Oferta'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.table_chart_outlined),

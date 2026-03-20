@@ -25,24 +25,15 @@ class _PunetPageState extends State<PunetPage> {
 
   int? selectedJobId;
 
-  /// 0 = aktive, 1 = perfunduara
-  int selectedTopTab = 0;
-
-  List<JobProject> get activeJobs =>
-      jobs.where((e) => !(e.isCompleted)).toList();
+  List<JobProject> get activeJobs => jobs.where((e) => !e.isCompleted).toList();
 
   List<JobProject> get completedJobs =>
       jobs.where((e) => e.isCompleted).toList();
-
-  List<JobProject> get visibleJobs =>
-      selectedTopTab == 0 ? activeJobs : completedJobs;
 
   JobProject? get selectedJob {
     if (selectedJobId == null) return null;
     return jobs.where((e) => e.id == selectedJobId).firstOrNull;
   }
-
-  bool get selectedJobIsCompleted => selectedJob?.isCompleted ?? false;
 
   @override
   void initState() {
@@ -58,10 +49,8 @@ class _PunetPageState extends State<PunetPage> {
 
     if (activeJobs.isNotEmpty) {
       selectedJobId = activeJobs.first.id;
-      selectedTopTab = 0;
     } else if (completedJobs.isNotEmpty) {
       selectedJobId = completedJobs.first.id;
-      selectedTopTab = 1;
     } else {
       selectedJobId = null;
     }
@@ -82,19 +71,12 @@ class _PunetPageState extends State<PunetPage> {
 
       if (wantedId != null && exists) {
         selectedJobId = wantedId;
-        final found = jobs.where((e) => e.id == wantedId).firstOrNull;
-        if (found != null) {
-          selectedTopTab = found.isCompleted ? 1 : 0;
-        }
       } else if (activeJobs.isNotEmpty) {
         selectedJobId = activeJobs.first.id;
-        selectedTopTab = 0;
       } else if (completedJobs.isNotEmpty) {
         selectedJobId = completedJobs.first.id;
-        selectedTopTab = 1;
       } else {
         selectedJobId = jobs.first.id;
-        selectedTopTab = jobs.first.isCompleted ? 1 : 0;
       }
     }
 
@@ -103,21 +85,166 @@ class _PunetPageState extends State<PunetPage> {
     }
   }
 
-  void _changeTopTab(int index) {
-    final targetList = index == 0 ? activeJobs : completedJobs;
+  Future<void> _openDetails(JobProject job) async {
+    if (job.id == null) return;
 
     setState(() {
-      selectedTopTab = index;
-
-      if (targetList.isEmpty) {
-        selectedJobId = null;
-        return;
-      }
-
-      final currentVisible =
-          targetList.where((e) => e.id == selectedJobId).firstOrNull;
-      selectedJobId = currentVisible?.id ?? targetList.first.id;
+      selectedJobId = job.id;
     });
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: StatefulBuilder(
+            builder: (context, setModalState) {
+              JobProject? currentJob =
+                  jobs.where((e) => e.id == job.id).firstOrNull;
+
+              if (currentJob == null) {
+                return const SizedBox(
+                  width: 1000,
+                  height: 500,
+                  child: Center(
+                    child: Text('Ky projekt nuk u gjet më.'),
+                  ),
+                );
+              }
+
+              Future<void> refreshModal() async {
+                await _reloadJobs(keepSelectedId: currentJob!.id);
+                setModalState(() {});
+              }
+
+              return SizedBox(
+                width: 1400,
+                height: MediaQuery.of(context).size.height * 0.90,
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(22, 18, 16, 18),
+                      decoration: BoxDecoration(
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(28),
+                        ),
+                        gradient: LinearGradient(
+                          colors: [
+                            (currentJob.isCompleted
+                                    ? Colors.green
+                                    : Theme.of(context).colorScheme.primary)
+                                .withOpacity(0.18),
+                            Colors.transparent,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Colors.white.withOpacity(0.07),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 58,
+                            height: 58,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(18),
+                              color: (currentJob.isCompleted
+                                      ? Colors.green
+                                      : Theme.of(context).colorScheme.primary)
+                                  .withOpacity(0.16),
+                            ),
+                            child: Icon(
+                              currentJob.isCompleted
+                                  ? Icons.task_alt_rounded
+                                  : Icons.apartment_rounded,
+                              color: currentJob.isCompleted
+                                  ? Colors.green
+                                  : Theme.of(context).colorScheme.primary,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  currentJob.name,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Detajet e plota të projektit, punëtorët, shpenzimet dhe fitimi.',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: Colors.white70,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          _StatusChip(isCompleted: currentJob.isCompleted),
+                          const SizedBox(width: 10),
+                          IconButton(
+                            tooltip: 'Mbyll',
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          return SingleChildScrollView(
+                            padding: const EdgeInsets.all(18),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minWidth: constraints.maxWidth,
+                              ),
+                              child: _buildDetailsView(
+                                currentJob,
+                                onRefresh: refreshModal,
+                                onDeleteAndClose: () async {
+                                  await _deleteJob(currentJob!);
+                                  if (dialogContext.mounted) {
+                                    Navigator.of(dialogContext).pop();
+                                  }
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
   Future<void> _addJob() async {
@@ -158,9 +285,8 @@ class _PunetPageState extends State<PunetPage> {
                 controller: amountC,
                 label: 'Qarkullimi / Vlera e kontratës (€)',
                 icon: Icons.payments_rounded,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 12),
               _PremiumTextField(
@@ -209,9 +335,8 @@ class _PunetPageState extends State<PunetPage> {
   Future<void> _editJob(JobProject job) async {
     final nameC = TextEditingController(text: job.name);
     final clientC = TextEditingController(text: job.clientName ?? '');
-    final amountC = TextEditingController(
-      text: job.contractAmount.toStringAsFixed(2),
-    );
+    final amountC =
+        TextEditingController(text: job.contractAmount.toStringAsFixed(2));
     final noteC = TextEditingController(text: job.note ?? '');
 
     final ok = await showDialog<bool>(
@@ -246,9 +371,8 @@ class _PunetPageState extends State<PunetPage> {
                 controller: amountC,
                 label: 'Qarkullimi / Vlera e kontratës (€)',
                 icon: Icons.payments_rounded,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 12),
               _PremiumTextField(
@@ -339,7 +463,7 @@ class _PunetPageState extends State<PunetPage> {
         ),
         content: Text(
           'A je i sigurt që don me e përfundu projektin "${job.name}"?\n\n'
-          'Pas kësaj nuk ka me u shfaq ma te projektet aktive, po ka me kalu te tab-i i projekteve të përfunduara.',
+          'Pas kësaj projekti kalon te lista e projekteve të përfunduara.',
         ),
         actions: [
           TextButton(
@@ -361,23 +485,11 @@ class _PunetPageState extends State<PunetPage> {
     job.completedAt = DateTime.now();
 
     await JobsDao.I.updateJob(job);
-
-    final nextActive = activeJobs.where((e) => e.id != job.id).firstOrNull;
-    await _reloadJobs(
-      keepSelectedId: nextActive?.id ?? job.id,
-    );
+    await _reloadJobs(keepSelectedId: job.id);
   }
 
-  Future<void> _openCompletedJob(JobProject job) async {
-    setState(() {
-      selectedTopTab = 1;
-      selectedJobId = job.id;
-    });
-  }
-
-  Future<void> _addWorkerToJob() async {
-    final job = selectedJob;
-    if (job == null || job.id == null) return;
+  Future<void> _addWorkerToJob(JobProject job) async {
+    if (job.id == null) return;
 
     if (workers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -446,10 +558,8 @@ class _PunetPageState extends State<PunetPage> {
                             .toStringAsFixed(2);
                       });
                     },
-                    decoration: _inputDecoration(
-                      'Punëtori',
-                      Icons.badge_outlined,
-                    ),
+                    decoration:
+                        _inputDecoration('Punëtori', Icons.badge_outlined),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -459,7 +569,9 @@ class _PunetPageState extends State<PunetPage> {
                           controller: daysC,
                           keyboardType: TextInputType.number,
                           decoration: _inputDecoration(
-                              'Ditë pune', Icons.calendar_today),
+                            'Ditë pune',
+                            Icons.calendar_today,
+                          ),
                           onChanged: (_) => setLocal(() {}),
                         ),
                       ),
@@ -497,8 +609,10 @@ class _PunetPageState extends State<PunetPage> {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.calculate_rounded,
-                            color: Colors.green),
+                        const Icon(
+                          Icons.calculate_rounded,
+                          color: Colors.green,
+                        ),
                         const SizedBox(width: 10),
                         Text(
                           'Totali i punëtorit: ${eur(currentTotal())}',
@@ -612,10 +726,8 @@ class _PunetPageState extends State<PunetPage> {
 
                       setLocal(() => selectedWorker = found);
                     },
-                    decoration: _inputDecoration(
-                      'Punëtori',
-                      Icons.badge_outlined,
-                    ),
+                    decoration:
+                        _inputDecoration('Punëtori', Icons.badge_outlined),
                   ),
                   const SizedBox(height: 12),
                   Row(
@@ -625,7 +737,9 @@ class _PunetPageState extends State<PunetPage> {
                           controller: daysC,
                           keyboardType: TextInputType.number,
                           decoration: _inputDecoration(
-                              'Ditë pune', Icons.calendar_today),
+                            'Ditë pune',
+                            Icons.calendar_today,
+                          ),
                           onChanged: (_) => setLocal(() {}),
                         ),
                       ),
@@ -657,9 +771,7 @@ class _PunetPageState extends State<PunetPage> {
                     decoration: BoxDecoration(
                       color: Colors.blue.withOpacity(0.10),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.blue.withOpacity(0.28),
-                      ),
+                      border: Border.all(color: Colors.blue.withOpacity(0.28)),
                     ),
                     child: Row(
                       children: [
@@ -716,9 +828,8 @@ class _PunetPageState extends State<PunetPage> {
     await _reloadJobs(keepSelectedId: job.id);
   }
 
-  Future<void> _addExpense() async {
-    final job = selectedJob;
-    if (job == null || job.id == null) return;
+  Future<void> _addExpense(JobProject job) async {
+    if (job.id == null) return;
 
     final titleC = TextEditingController();
     final amountC = TextEditingController(text: '0');
@@ -750,9 +861,8 @@ class _PunetPageState extends State<PunetPage> {
                 controller: amountC,
                 label: 'Shuma (€)',
                 icon: Icons.euro_rounded,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 12),
               _PremiumTextField(
@@ -825,9 +935,8 @@ class _PunetPageState extends State<PunetPage> {
                 controller: amountC,
                 label: 'Shuma (€)',
                 icon: Icons.euro_rounded,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 12),
               _PremiumTextField(
@@ -869,10 +978,7 @@ class _PunetPageState extends State<PunetPage> {
     await _reloadJobs(keepSelectedId: job.id);
   }
 
-  Future<void> _exportPdfSelected() async {
-    final job = selectedJob;
-    if (job == null) return;
-
+  Future<void> _exportPdfForJob(JobProject job) async {
     final bytes = await JobReportPdf.buildSingleJob(job: job);
 
     await _savePdf(
@@ -933,7 +1039,7 @@ class _PunetPageState extends State<PunetPage> {
     return job.contractAmount - _investmentTotal(job);
   }
 
-  InputDecoration _inputDecoration(String label, IconData icon) {
+  static InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
       prefixIcon: Icon(icon),
@@ -961,13 +1067,12 @@ class _PunetPageState extends State<PunetPage> {
     }
 
     final job = selectedJob;
-    final dropdownValue =
-        visibleJobs.any((e) => e.id == selectedJobId) ? selectedJobId : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
+          width: double.infinity,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(24),
@@ -1016,13 +1121,6 @@ class _PunetPageState extends State<PunetPage> {
                               ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          'Menaxho projektet aktive dhe të përfunduara, punëtorët, shpenzimet dhe raportet PDF.',
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: Colors.white70,
-                                  ),
-                        ),
                       ],
                     ),
                   ),
@@ -1047,7 +1145,8 @@ class _PunetPageState extends State<PunetPage> {
                         label: const Text('Fshij'),
                       ),
                       OutlinedButton.icon(
-                        onPressed: job == null ? null : _exportPdfSelected,
+                        onPressed:
+                            job == null ? null : () => _exportPdfForJob(job),
                         icon: const Icon(Icons.picture_as_pdf_rounded),
                         label: const Text('PDF (kjo punë)'),
                       ),
@@ -1060,688 +1159,419 @@ class _PunetPageState extends State<PunetPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Row(
-                children: [
-                  Expanded(
-                    child: _TopSwitchTab(
-                      selected: selectedTopTab == 0,
-                      icon: Icons.work_outline_rounded,
-                      title: 'Projektet aktive',
-                      count: activeJobs.length,
-                      color: Colors.blue,
-                      onTap: () => _changeTopTab(0),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _TopSwitchTab(
-                      selected: selectedTopTab == 1,
-                      icon: Icons.task_alt_rounded,
-                      title: 'Projektet e përfunduara',
-                      count: completedJobs.length,
-                      color: Colors.green,
-                      onTap: () => _changeTopTab(1),
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(22),
-            color: Theme.of(context).cardColor,
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          selectedTopTab == 0
-                              ? Icons.folder_open_rounded
-                              : Icons.inventory_rounded,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          selectedTopTab == 0
-                              ? 'Projektet aktive'
-                              : 'Projektet e përfunduara',
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        const Spacer(),
-                        _StatPill(
-                          icon: selectedTopTab == 0
-                              ? Icons.work_outline_rounded
-                              : Icons.done_all_rounded,
-                          text: '${visibleJobs.length} projekte',
-                          color:
-                              selectedTopTab == 0 ? Colors.blue : Colors.green,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      value: dropdownValue,
-                      isExpanded: true,
-                      borderRadius: BorderRadius.circular(16),
-                      items: visibleJobs
-                          .where((j) => j.id != null)
-                          .map(
-                            (j) => DropdownMenuItem<int>(
-                              value: j.id!,
-                              child: Text(j.name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: visibleJobs.isEmpty
-                          ? null
-                          : (v) {
-                              setState(() {
-                                selectedJobId = v;
-                              });
-                            },
-                      decoration: _inputDecoration(
-                        selectedTopTab == 0
-                            ? 'Zgjedh punën aktive'
-                            : 'Zgjedh projektin e përfunduar',
-                        selectedTopTab == 0
-                            ? Icons.folder_open_rounded
-                            : Icons.task_alt_rounded,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (job == null)
-          Expanded(
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.white.withOpacity(0.06)),
-                  color: Theme.of(context).cardColor,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.inventory_2_outlined,
-                      size: 52,
-                      color: Colors.white.withOpacity(0.65),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      jobs.isEmpty
-                          ? 'Nuk ka asnjë punë të regjistruar.'
-                          : 'Nuk ka punë të zgjedhur.',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          )
-        else
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: SizedBox(
+                  width: constraints.maxWidth,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        flex: 3,
-                        child: _GlassCard(
-                          child: Padding(
-                            padding: const EdgeInsets.all(18),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        job.name,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .headlineSmall
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w900,
-                                            ),
-                                      ),
+                      _JobsTableCard(
+                        tableWidth: constraints.maxWidth,
+                        title: 'Projektet aktive',
+                        subtitle: 'Punët që janë ende në proces',
+                        icon: Icons.work_outline_rounded,
+                        color: Colors.blue,
+                        count: activeJobs.length,
+                        jobs: activeJobs,
+                        selectedJobId: selectedJobId,
+                        onDetailsTap: _openDetails,
+                        profitBuilder: _profit,
+                        dateBuilder: _fmtDate,
+                      ),
+                      const SizedBox(height: 16),
+                      _JobsTableCard(
+                        tableWidth: constraints.maxWidth,
+                        title: 'Projektet e përfunduara',
+                        subtitle: 'Historiku i projekteve të mbyllura',
+                        icon: Icons.task_alt_rounded,
+                        color: Colors.green,
+                        count: completedJobs.length,
+                        jobs: completedJobs,
+                        selectedJobId: selectedJobId,
+                        onDetailsTap: _openDetails,
+                        profitBuilder: _profit,
+                        dateBuilder: _fmtDate,
+                      ),
+                      const SizedBox(height: 16),
+                      if (jobs.isEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(28),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.06),
+                            ),
+                            color: Theme.of(context).cardColor,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.inventory_2_outlined,
+                                size: 52,
+                                color: Colors.white.withOpacity(0.65),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Nuk ka asnjë punë të regjistruar.',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                    const SizedBox(width: 10),
-                                    _StatusChip(
-                                      isCompleted: job.isCompleted,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 14),
-                                _InfoTile(
-                                  icon: Icons.person_outline_rounded,
-                                  label: 'Klienti',
-                                  value: job.clientName ?? '—',
-                                ),
-                                _InfoTile(
-                                  icon: Icons.calendar_month_rounded,
-                                  label: 'Data e krijimit',
-                                  value: _fmtDate(job.createdAt),
-                                ),
-                                _InfoTile(
-                                  icon: Icons.euro_rounded,
-                                  label: 'Qarkullimi',
-                                  value: eur(job.contractAmount),
-                                ),
-                                _InfoTile(
-                                  icon: Icons.notes_rounded,
-                                  label: 'Shënim',
-                                  value: job.note ?? '—',
-                                ),
-                                if (job.isCompleted)
-                                  _InfoTile(
-                                    icon: Icons.task_alt_rounded,
-                                    label: 'Përfunduar më',
-                                    value: job.completedAt == null
-                                        ? '—'
-                                        : _fmtDate(job.completedAt!),
-                                  ),
-                                const SizedBox(height: 16),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    if (!job.isCompleted)
-                                      ElevatedButton.icon(
-                                        onPressed: () => _finishProject(job),
-                                        icon: const Icon(
-                                          Icons.task_alt_rounded,
-                                        ),
-                                        label: const Text('Përfundo projektin'),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green,
-                                          foregroundColor: Colors.white,
-                                        ),
-                                      ),
-                                    OutlinedButton.icon(
-                                      onPressed: _exportPdfSelected,
-                                      icon: const Icon(
-                                        Icons.print_rounded,
-                                      ),
-                                      label: const Text('Printo PDF'),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            color: Colors.white.withOpacity(0.02),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.06),
                             ),
                           ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Kliko "Detaje" për me e hap projektin në dritare të veçantë.',
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 4,
-                        child: Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            _SummaryCard(
-                              title: 'Punëtorë',
-                              value: eur(_workersTotal(job)),
-                              icon: Icons.groups_rounded,
-                              accent: Colors.blue,
-                            ),
-                            _SummaryCard(
-                              title: 'Shpenzime',
-                              value: eur(_expensesTotal(job)),
-                              icon: Icons.receipt_long_rounded,
-                              accent: Colors.orange,
-                            ),
-                            _SummaryCard(
-                              title: 'Investimi',
-                              value: eur(_investmentTotal(job)),
-                              icon: Icons.account_balance_wallet_rounded,
-                              accent: Colors.purple,
-                            ),
-                            _SummaryCard(
-                              title: 'Fitimi',
-                              value: eur(_profit(job)),
-                              icon: _profit(job) >= 0
-                                  ? Icons.trending_up_rounded
-                                  : Icons.trending_down_rounded,
-                              accent:
-                                  _profit(job) >= 0 ? Colors.green : Colors.red,
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-                  _TableSectionCard(
-                    icon: Icons.groups_2_rounded,
-                    title: 'Punëtorët në këtë punë',
-                    action: !selectedJobIsCompleted
-                        ? ElevatedButton.icon(
-                            onPressed: _addWorkerToJob,
-                            icon: const Icon(Icons.person_add_alt_1_rounded),
-                            label: const Text('Shto punëtor'),
-                          )
-                        : null,
-                    child: job.workerEntries.isEmpty
-                        ? const _EmptySection(
-                            icon: Icons.group_off_rounded,
-                            text:
-                                'Nuk ka punëtorë të regjistruar për këtë projekt.',
-                          )
-                        : _StyledDataTable(
-                            columns: const [
-                              DataColumn(label: Text('Punëtori')),
-                              DataColumn(label: Text('Pozita')),
-                              DataColumn(label: Text('Ditë')),
-                              DataColumn(label: Text('Pagesa ditore')),
-                              DataColumn(label: Text('Totali')),
-                              DataColumn(label: Text('Shënim')),
-                              DataColumn(label: Text('Veprime')),
-                            ],
-                            rows: job.workerEntries.map((e) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(e.workerName)),
-                                  DataCell(Text(e.workerPosition ?? '—')),
-                                  DataCell(Text(e.days.toString())),
-                                  DataCell(_MoneyBadge(eur(e.dailyRate))),
-                                  DataCell(_MoneyBadge(eur(e.total))),
-                                  DataCell(Text(e.note ?? '—')),
-                                  DataCell(
-                                    selectedJobIsCompleted
-                                        ? Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: const [
-                                              Icon(Icons.lock_outline_rounded,
-                                                  size: 18),
-                                              SizedBox(width: 6),
-                                              Text('Vetëm lexim'),
-                                            ],
-                                          )
-                                        : Row(
-                                            children: [
-                                              IconButton(
-                                                tooltip: 'Ndrysho',
-                                                icon: const Icon(
-                                                    Icons.edit_rounded),
-                                                onPressed: () =>
-                                                    _editWorkerEntry(job, e),
-                                              ),
-                                              IconButton(
-                                                tooltip: 'Fshij',
-                                                icon: const Icon(Icons
-                                                    .delete_outline_rounded),
-                                                onPressed: () =>
-                                                    _deleteWorkerEntry(
-                                                        job, e.id),
-                                              ),
-                                            ],
-                                          ),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
-                          ),
-                  ),
-                  const SizedBox(height: 14),
-                  _TableSectionCard(
-                    icon: Icons.receipt_long_rounded,
-                    title: 'Shpenzimet',
-                    action: !selectedJobIsCompleted
-                        ? ElevatedButton.icon(
-                            onPressed: _addExpense,
-                            icon: const Icon(Icons.add_card_rounded),
-                            label: const Text('Shto shpenzim'),
-                          )
-                        : null,
-                    child: job.expenses.isEmpty
-                        ? const _EmptySection(
-                            icon: Icons.receipt_long_outlined,
-                            text:
-                                'Nuk ka shpenzime të regjistruara për këtë projekt.',
-                          )
-                        : _StyledDataTable(
-                            columns: const [
-                              DataColumn(label: Text('Përshkrimi')),
-                              DataColumn(label: Text('Shuma')),
-                              DataColumn(label: Text('Shënim')),
-                              DataColumn(label: Text('Veprime')),
-                            ],
-                            rows: job.expenses.map((e) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(e.title)),
-                                  DataCell(_ExpenseBadge(eur(e.amount))),
-                                  DataCell(Text(e.note ?? '—')),
-                                  DataCell(
-                                    selectedJobIsCompleted
-                                        ? Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: const [
-                                              Icon(Icons.lock_outline_rounded,
-                                                  size: 18),
-                                              SizedBox(width: 6),
-                                              Text('Vetëm lexim'),
-                                            ],
-                                          )
-                                        : Row(
-                                            children: [
-                                              IconButton(
-                                                tooltip: 'Ndrysho',
-                                                icon: const Icon(
-                                                    Icons.edit_rounded),
-                                                onPressed: () =>
-                                                    _editExpense(job, e),
-                                              ),
-                                              IconButton(
-                                                tooltip: 'Fshij',
-                                                icon: const Icon(Icons
-                                                    .delete_outline_rounded),
-                                                onPressed: () =>
-                                                    _deleteExpense(job, e.id),
-                                              ),
-                                            ],
-                                          ),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
-                          ),
-                  ),
-                  if (completedJobs.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    _GlassCard(
-                      child: Padding(
-                        padding: const EdgeInsets.all(18),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(16),
-                                    color: Colors.green.withOpacity(0.14),
-                                  ),
-                                  child: const Icon(
-                                    Icons.history_rounded,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Projektet e përfunduara',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleLarge
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w900,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Shiko historikun e projekteve të mbyllura me qarkullimin dhe fitimin e tyre.',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                              color: Colors.white70,
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                _StatPill(
-                                  icon: Icons.done_all_rounded,
-                                  text: '${completedJobs.length} projekte',
-                                  color: Colors.green,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(24),
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.green.withOpacity(0.08),
-                                    Colors.white.withOpacity(0.02),
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                                border: Border.all(
-                                    color: Colors.white.withOpacity(0.08)),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(24),
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Theme(
-                                    data: Theme.of(context).copyWith(
-                                      dividerColor:
-                                          Colors.white.withOpacity(0.06),
-                                    ),
-                                    child: DataTable(
-                                      horizontalMargin: 22,
-                                      columnSpacing: 30,
-                                      headingRowHeight: 60,
-                                      dataRowMinHeight: 72,
-                                      dataRowMaxHeight: 76,
-                                      headingRowColor: MaterialStatePropertyAll(
-                                        Colors.green.withOpacity(0.10),
-                                      ),
-                                      columns: const [
-                                        DataColumn(label: Text('Projekti')),
-                                        DataColumn(label: Text('Klienti')),
-                                        DataColumn(
-                                            label: Text('Përfunduar më')),
-                                        DataColumn(label: Text('Qarkullimi')),
-                                        DataColumn(label: Text('Fitimi')),
-                                        DataColumn(label: Text('Veprime')),
-                                      ],
-                                      rows: completedJobs.map((p) {
-                                        final profit = _profit(p);
-                                        final isSelected =
-                                            p.id == selectedJobId;
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
 
-                                        return DataRow(
-                                          selected: isSelected,
-                                          color: MaterialStateProperty
-                                              .resolveWith<Color?>(
-                                            (states) {
-                                              if (isSelected) {
-                                                return Colors.green
-                                                    .withOpacity(0.10);
-                                              }
-                                              return null;
-                                            },
-                                          ),
-                                          cells: [
-                                            DataCell(
-                                              Row(
-                                                children: [
-                                                  Container(
-                                                    width: 40,
-                                                    height: 40,
-                                                    decoration: BoxDecoration(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              12),
-                                                      color: Colors.green
-                                                          .withOpacity(0.12),
-                                                    ),
-                                                    child: const Icon(
-                                                      Icons.apartment_rounded,
-                                                      size: 20,
-                                                      color: Colors.green,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  ConstrainedBox(
-                                                    constraints:
-                                                        const BoxConstraints(
-                                                            minWidth: 180),
-                                                    child: Text(
-                                                      p.name,
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            DataCell(
-                                              Text(
-                                                p.clientName ?? '—',
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                            DataCell(
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 8,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white
-                                                      .withOpacity(0.04),
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  border: Border.all(
-                                                    color: Colors.white
-                                                        .withOpacity(0.06),
-                                                  ),
-                                                ),
-                                                child: Text(
-                                                  p.completedAt == null
-                                                      ? '—'
-                                                      : _fmtDate(
-                                                          p.completedAt!),
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            DataCell(_MoneyBadge(
-                                                eur(p.contractAmount))),
-                                            DataCell(
-                                              profit >= 0
-                                                  ? _MoneyBadge(eur(profit))
-                                                  : _DangerBadge(eur(profit)),
-                                            ),
-                                            DataCell(
-                                              Row(
-                                                children: [
-                                                  Container(
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.blue
-                                                          .withOpacity(0.10),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              12),
-                                                      border: Border.all(
-                                                        color: Colors.blue
-                                                            .withOpacity(0.22),
-                                                      ),
-                                                    ),
-                                                    child: IconButton(
-                                                      tooltip: 'Shiko detajet',
-                                                      icon: const Icon(
-                                                        Icons
-                                                            .visibility_rounded,
-                                                        color: Colors.blue,
-                                                      ),
-                                                      onPressed: () =>
-                                                          _openCompletedJob(p),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Container(
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.red
-                                                          .withOpacity(0.10),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              12),
-                                                      border: Border.all(
-                                                        color: Colors.red
-                                                            .withOpacity(0.22),
-                                                      ),
-                                                    ),
-                                                    child: IconButton(
-                                                      tooltip: 'Printo PDF',
-                                                      icon: const Icon(
-                                                        Icons
-                                                            .picture_as_pdf_rounded,
-                                                        color: Colors.redAccent,
-                                                      ),
-                                                      onPressed: () async {
-                                                        selectedJobId = p.id;
-                                                        selectedTopTab = 1;
-                                                        setState(() {});
-                                                        await _exportPdfSelected();
-                                                      },
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        );
-                                      }).toList(),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
+  Widget _buildDetailsView(
+    JobProject job, {
+    required Future<void> Function() onRefresh,
+    required Future<void> Function() onDeleteAndClose,
+  }) {
+    final bool isCompleted = job.isCompleted;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: [
+            SizedBox(
+              width: 340,
+              child: _SummaryCard(
+                title: 'Punëtorë',
+                value: eur(_workersTotal(job)),
+                icon: Icons.groups_rounded,
+                accent: Colors.blue,
+                fullWidth: true,
+              ),
+            ),
+            SizedBox(
+              width: 340,
+              child: _SummaryCard(
+                title: 'Shpenzime',
+                value: eur(_expensesTotal(job)),
+                icon: Icons.receipt_long_rounded,
+                accent: Colors.orange,
+                fullWidth: true,
+              ),
+            ),
+            SizedBox(
+              width: 340,
+              child: _SummaryCard(
+                title: 'Investimi',
+                value: eur(_investmentTotal(job)),
+                icon: Icons.account_balance_wallet_rounded,
+                accent: Colors.purple,
+                fullWidth: true,
+              ),
+            ),
+            SizedBox(
+              width: 340,
+              child: _SummaryCard(
+                title: 'Fitimi',
+                value: eur(_profit(job)),
+                icon: _profit(job) >= 0
+                    ? Icons.trending_up_rounded
+                    : Icons.trending_down_rounded,
+                accent: _profit(job) >= 0 ? Colors.green : Colors.red,
+                fullWidth: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _GlassCard(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      'Informacionet e projektit',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                    ),
+                    _StatusChip(isCompleted: job.isCompleted),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _InfoTile(
+                  icon: Icons.person_outline_rounded,
+                  label: 'Klienti',
+                  value: job.clientName ?? '—',
+                ),
+                _InfoTile(
+                  icon: Icons.calendar_month_rounded,
+                  label: 'Data e krijimit',
+                  value: _fmtDate(job.createdAt),
+                ),
+                _InfoTile(
+                  icon: Icons.euro_rounded,
+                  label: 'Qarkullimi',
+                  value: eur(job.contractAmount),
+                ),
+                _InfoTile(
+                  icon: Icons.notes_rounded,
+                  label: 'Shënim',
+                  value: job.note ?? '—',
+                ),
+                if (job.isCompleted)
+                  _InfoTile(
+                    icon: Icons.task_alt_rounded,
+                    label: 'Përfunduar më',
+                    value: job.completedAt == null
+                        ? '—'
+                        : _fmtDate(job.completedAt!),
+                  ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (!isCompleted)
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          await _finishProject(job);
+                          await onRefresh();
+                        },
+                        icon: const Icon(Icons.task_alt_rounded),
+                        label: const Text('Përfundo projektin'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
                         ),
+                      ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await _editJob(job);
+                        await onRefresh();
+                      },
+                      icon: const Icon(Icons.edit_rounded),
+                      label: const Text('Ndrysho projektin'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _exportPdfForJob(job),
+                      icon: const Icon(Icons.print_rounded),
+                      label: const Text('Printo PDF'),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: onDeleteAndClose,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: const Text('Fshij Projektin'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.redAccent,
+                        foregroundColor: Colors.white,
                       ),
                     ),
                   ],
-                ],
-              ),
+                ),
+              ],
             ),
           ),
+        ),
+        const SizedBox(height: 14),
+        _TableSectionCard(
+          icon: Icons.groups_2_rounded,
+          title: 'Punëtorët në këtë punë',
+          action: !isCompleted
+              ? ElevatedButton.icon(
+                  onPressed: () async {
+                    await _addWorkerToJob(job);
+                    await onRefresh();
+                  },
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                  label: const Text('Shto punëtor'),
+                )
+              : null,
+          child: job.workerEntries.isEmpty
+              ? const _EmptySection(
+                  icon: Icons.group_off_rounded,
+                  text: 'Nuk ka punëtorë të regjistruar për këtë projekt.',
+                )
+              : _StyledDataTable(
+                  columns: const [
+                    DataColumn(label: Text('Punëtori')),
+                    DataColumn(label: Text('Pozita')),
+                    DataColumn(label: Text('Ditë')),
+                    DataColumn(label: Text('Pagesa ditore')),
+                    DataColumn(label: Text('Totali')),
+                    DataColumn(label: Text('Shënim')),
+                    DataColumn(label: Text('Veprime')),
+                  ],
+                  rows: job.workerEntries.map((e) {
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(e.workerName)),
+                        DataCell(Text(e.workerPosition ?? '—')),
+                        DataCell(Text(e.days.toString())),
+                        DataCell(_MoneyBadge(eur(e.dailyRate))),
+                        DataCell(_MoneyBadge(eur(e.total))),
+                        DataCell(Text(e.note ?? '—')),
+                        DataCell(
+                          isCompleted
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.lock_outline_rounded, size: 18),
+                                    SizedBox(width: 6),
+                                    Text('Vetëm lexim'),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Ndrysho',
+                                      icon: const Icon(Icons.edit_rounded),
+                                      onPressed: () async {
+                                        await _editWorkerEntry(job, e);
+                                        await onRefresh();
+                                      },
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Fshij',
+                                      icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                      ),
+                                      onPressed: () async {
+                                        await _deleteWorkerEntry(job, e.id);
+                                        await onRefresh();
+                                      },
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+        ),
+        const SizedBox(height: 14),
+        _TableSectionCard(
+          icon: Icons.receipt_long_rounded,
+          title: 'Shpenzimet',
+          action: !isCompleted
+              ? ElevatedButton.icon(
+                  onPressed: () async {
+                    await _addExpense(job);
+                    await onRefresh();
+                  },
+                  icon: const Icon(Icons.add_card_rounded),
+                  label: const Text('Shto shpenzim'),
+                )
+              : null,
+          child: job.expenses.isEmpty
+              ? const _EmptySection(
+                  icon: Icons.receipt_long_outlined,
+                  text: 'Nuk ka shpenzime të regjistruara për këtë projekt.',
+                )
+              : _StyledDataTable(
+                  columns: const [
+                    DataColumn(label: Text('Përshkrimi')),
+                    DataColumn(label: Text('Shuma')),
+                    DataColumn(label: Text('Shënim')),
+                    DataColumn(label: Text('Veprime')),
+                  ],
+                  rows: job.expenses.map((e) {
+                    return DataRow(
+                      cells: [
+                        DataCell(Text(e.title)),
+                        DataCell(_ExpenseBadge(eur(e.amount))),
+                        DataCell(Text(e.note ?? '—')),
+                        DataCell(
+                          isCompleted
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.lock_outline_rounded, size: 18),
+                                    SizedBox(width: 6),
+                                    Text('Vetëm lexim'),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Ndrysho',
+                                      icon: const Icon(Icons.edit_rounded),
+                                      onPressed: () async {
+                                        await _editExpense(job, e);
+                                        await onRefresh();
+                                      },
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Fshij',
+                                      icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                      ),
+                                      onPressed: () async {
+                                        await _deleteExpense(job, e.id);
+                                        await onRefresh();
+                                      },
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+        ),
       ],
     );
   }
@@ -1754,6 +1584,273 @@ class _PunetPageState extends State<PunetPage> {
   }
 }
 
+class _JobsTableCard extends StatelessWidget {
+  final double tableWidth;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final int count;
+  final List<JobProject> jobs;
+  final int? selectedJobId;
+  final Future<void> Function(JobProject job) onDetailsTap;
+  final double Function(JobProject job) profitBuilder;
+  final String Function(DateTime date) dateBuilder;
+
+  const _JobsTableCard({
+    required this.tableWidth,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.count,
+    required this.jobs,
+    required this.selectedJobId,
+    required this.onDetailsTap,
+    required this.profitBuilder,
+    required this.dateBuilder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: _GlassCard(
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: color.withOpacity(0.14),
+                    ),
+                    child: Icon(icon, color: color),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Colors.white70,
+                                  ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _StatPill(
+                    icon: icon,
+                    text: '$count projekte',
+                    color: color,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (jobs.isEmpty)
+                _EmptySection(
+                  icon: icon,
+                  text: 'Nuk ka projekte në këtë listë.',
+                )
+              else
+                Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    gradient: LinearGradient(
+                      colors: [
+                        color.withOpacity(0.08),
+                        Colors.white.withOpacity(0.02),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(color: Colors.white.withOpacity(0.08)),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: tableWidth,
+                        ),
+                        child: Theme(
+                          data: Theme.of(context).copyWith(
+                            dividerColor: Colors.white.withOpacity(0.06),
+                          ),
+                          child: DataTable(
+                            horizontalMargin: 22,
+                            columnSpacing: 30,
+                            headingRowHeight: 60,
+                            dataRowMinHeight: 68,
+                            dataRowMaxHeight: 74,
+                            headingRowColor: MaterialStatePropertyAll(
+                              color.withOpacity(0.10),
+                            ),
+                            columns: const [
+                              DataColumn(label: Text('Emri')),
+                              DataColumn(label: Text('Klienti')),
+                              DataColumn(label: Text('Vlera')),
+                              DataColumn(label: Text('Fitimi')),
+                              DataColumn(label: Text('Statusi')),
+                              DataColumn(label: Text('Veprime')),
+                            ],
+                            rows: jobs.map((p) {
+                              final profit = profitBuilder(p);
+                              final isSelected = p.id == selectedJobId;
+
+                              return DataRow(
+                                selected: isSelected,
+                                color:
+                                    MaterialStateProperty.resolveWith<Color?>(
+                                  (states) {
+                                    if (isSelected) {
+                                      return color.withOpacity(0.10);
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                cells: [
+                                  DataCell(
+                                    SizedBox(
+                                      width: tableWidth * 0.24,
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              color: color.withOpacity(0.12),
+                                            ),
+                                            child: Icon(
+                                              Icons.apartment_rounded,
+                                              size: 20,
+                                              color: color,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              p.name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: tableWidth * 0.18,
+                                      child: Text(
+                                        p.clientName ?? '—',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: tableWidth * 0.12,
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child:
+                                            _MoneyBadge(eur(p.contractAmount)),
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: tableWidth * 0.12,
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: profit >= 0
+                                            ? _MoneyBadge(eur(profit))
+                                            : _DangerBadge(eur(profit)),
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: tableWidth * 0.12,
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: _StatusChip(
+                                            isCompleted: p.isCompleted),
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: tableWidth * 0.14,
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: ElevatedButton.icon(
+                                          onPressed: () => onDetailsTap(p),
+                                          icon: const Icon(
+                                              Icons.open_in_new_rounded),
+                                          label: const Text('Detaje'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                color.withOpacity(0.14),
+                                            foregroundColor: color,
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                              side: BorderSide(
+                                                color: color.withOpacity(0.30),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GlassCard extends StatelessWidget {
   final Widget child;
 
@@ -1763,95 +1860,9 @@ class _GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       elevation: 0,
+      margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: child,
-    );
-  }
-}
-
-class _TopSwitchTab extends StatelessWidget {
-  final bool selected;
-  final IconData icon;
-  final String title;
-  final int count;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _TopSwitchTab({
-    required this.selected,
-    required this.icon,
-    required this.title,
-    required this.count,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(22),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          color: selected
-              ? color.withOpacity(0.14)
-              : Colors.white.withOpacity(0.03),
-          border: Border.all(
-            color: selected
-                ? color.withOpacity(0.45)
-                : Colors.white.withOpacity(0.08),
-            width: selected ? 1.4 : 1,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: color.withOpacity(0.12),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
-                  )
-                ]
-              : [],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                color: color.withOpacity(0.14),
-              ),
-              child: Icon(icon, color: color),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '$count projekte',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-            if (selected)
-              Icon(Icons.check_circle_rounded, color: color, size: 20),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -1877,17 +1888,17 @@ class _TableSectionCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(icon),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                 ),
                 if (action != null) action!,
               ],
@@ -1923,21 +1934,24 @@ class _StyledDataTable extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          child: Theme(
-            data: Theme.of(context).copyWith(
-              dividerColor: Colors.white.withOpacity(0.06),
-            ),
-            child: DataTable(
-              columnSpacing: 28,
-              horizontalMargin: 20,
-              headingRowHeight: 58,
-              dataRowMinHeight: 60,
-              dataRowMaxHeight: 70,
-              headingRowColor: MaterialStatePropertyAll(
-                Theme.of(context).colorScheme.primary.withOpacity(0.08),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 1200),
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                dividerColor: Colors.white.withOpacity(0.06),
               ),
-              columns: columns,
-              rows: rows,
+              child: DataTable(
+                columnSpacing: 28,
+                horizontalMargin: 20,
+                headingRowHeight: 58,
+                dataRowMinHeight: 60,
+                dataRowMaxHeight: 70,
+                headingRowColor: MaterialStatePropertyAll(
+                  Theme.of(context).colorScheme.primary.withOpacity(0.08),
+                ),
+                columns: columns,
+                rows: rows,
+              ),
             ),
           ),
         ),
@@ -2006,6 +2020,7 @@ class _InfoTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Container(
+        width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
@@ -2128,20 +2143,23 @@ class _SummaryCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color accent;
+  final bool fullWidth;
 
   const _SummaryCard({
     required this.title,
     required this.value,
     required this.icon,
     required this.accent,
+    this.fullWidth = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 235,
+      width: fullWidth ? double.infinity : 235,
       child: Card(
         elevation: 0,
+        margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
         child: Padding(
           padding: const EdgeInsets.all(16),

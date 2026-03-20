@@ -5,12 +5,8 @@ import 'package:printing/printing.dart';
 
 import '../data/dao_calc_products.dart';
 import '../data/dao_firma.dart';
-import '../data/dao_parameters.dart';
-import '../data/dao_qmimorja.dart';
 import '../models/firma_info.dart';
-import '../models/parameters.dart';
 import '../models/product_calc_item.dart';
-import '../models/qmimorja_item.dart';
 import '../util/format.dart';
 
 class KalkuloPage extends StatefulWidget {
@@ -22,21 +18,11 @@ class KalkuloPage extends StatefulWidget {
 
 class _KalkuloPageState extends State<KalkuloPage> {
   final m2C = TextEditingController();
-  final fixedLaborC = TextEditingController();
 
-  Parameters? p;
   FirmaInfo firma = FirmaInfo.empty();
-
-  List<QmimorjaItem> laborItems = [];
-  QmimorjaItem? selectedLabor;
 
   List<ProductCalcItem> products = [];
   final Set<int> selectedProductIds = {};
-
-  bool includePaint = true;
-  bool laborFixedValue = false;
-
-  static const double bucketSize = 25.0;
 
   @override
   void initState() {
@@ -47,44 +33,12 @@ class _KalkuloPageState extends State<KalkuloPage> {
   @override
   void dispose() {
     m2C.dispose();
-    fixedLaborC.dispose();
     super.dispose();
   }
 
   Future<void> _loadAll() async {
     try {
-      p = await ParametersDao.I.get();
       firma = await FirmaDao.I.get();
-
-      final allPrices = await QmimorjaDao.I.list();
-      final cat = (p?.laborCategory ?? 'Punë dore').trim().toLowerCase();
-
-      laborItems = allPrices.where((x) {
-        return x.category.trim().toLowerCase() == cat;
-      }).toList();
-
-      if (laborItems.isNotEmpty) {
-        final currentId = selectedLabor?.id;
-
-        if (currentId != null) {
-          try {
-            selectedLabor = laborItems.firstWhere((x) => x.id == currentId);
-          } catch (_) {
-            selectedLabor = laborItems.firstWhere(
-              (x) => x.unit.toLowerCase().contains('m'),
-              orElse: () => laborItems.first,
-            );
-          }
-        } else {
-          selectedLabor = laborItems.firstWhere(
-            (x) => x.unit.toLowerCase().contains('m'),
-            orElse: () => laborItems.first,
-          );
-        }
-      } else {
-        selectedLabor = null;
-      }
-
       products = await CalcProductsDao.I.list();
 
       final validIds =
@@ -102,18 +56,6 @@ class _KalkuloPageState extends State<KalkuloPage> {
 
   double _toDouble(String v) {
     return double.tryParse(v.trim().replaceAll(',', '.')) ?? 0;
-  }
-
-  double _calcLiters(double m2) {
-    final par = p;
-    if (par == null || !includePaint) return 0;
-    final base = (m2 * par.litersPer100 / 100.0) * par.coats;
-    return base * (1.0 + par.wastePct / 100.0);
-  }
-
-  int _calcBuckets(double liters) {
-    if (liters <= 0) return 0;
-    return (liters / bucketSize).ceil();
   }
 
   List<ProductCalcItem> get _selectedProducts {
@@ -142,27 +84,46 @@ class _KalkuloPageState extends State<KalkuloPage> {
     await showDialog(
       context: context,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(28),
               ),
               title: Row(
                 children: [
-                  const Icon(Icons.playlist_add_check_circle_outlined),
-                  const SizedBox(width: 10),
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: cs.primary.withOpacity(0.10),
+                    ),
+                    child: Icon(
+                      Icons.playlist_add_check_circle_outlined,
+                      color: cs.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   const Expanded(
                     child: Text('Zgjedh produktet për kalkulim'),
                   ),
                 ],
               ),
               content: SizedBox(
-                width: 560,
+                width: 620,
                 child: products.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.all(8.0),
-                        child: Text('Nuk ka produkte të regjistruara.'),
+                    ? Container(
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: theme.dividerColor),
+                          color: cs.surfaceContainerHighest.withOpacity(0.22),
+                        ),
+                        child: const Text('Nuk ka produkte të regjistruara.'),
                       )
                     : SingleChildScrollView(
                         child: Column(
@@ -174,42 +135,47 @@ class _KalkuloPageState extends State<KalkuloPage> {
                             final totalPer100 =
                                 x.vleraPer100m2 + x.tvshPer100m2;
 
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
+                            return AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              margin: const EdgeInsets.only(bottom: 10),
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
+                                borderRadius: BorderRadius.circular(18),
                                 border: Border.all(
                                   color: checked
-                                      ? Theme.of(context).colorScheme.primary
-                                      : Theme.of(context).dividerColor,
+                                      ? cs.primary.withOpacity(0.45)
+                                      : theme.dividerColor.withOpacity(0.8),
                                 ),
                                 color: checked
-                                    ? Theme.of(context)
-                                        .colorScheme
-                                        .primary
-                                        .withOpacity(0.06)
-                                    : Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest
-                                        .withOpacity(0.25),
+                                    ? cs.primary.withOpacity(0.06)
+                                    : cs.surfaceContainerHighest
+                                        .withOpacity(0.18),
+                                boxShadow: checked
+                                    ? [
+                                        BoxShadow(
+                                          color: cs.primary.withOpacity(0.08),
+                                          blurRadius: 14,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               child: CheckboxListTile(
                                 value: checked,
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 4,
+                                  horizontal: 14,
+                                  vertical: 6,
                                 ),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
+                                  borderRadius: BorderRadius.circular(18),
                                 ),
                                 title: Text(
                                   x.emertimi,
                                   style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
                                 subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.only(top: 5),
                                   child: Text(
                                     '${x.kodi} • ${x.pako} • '
                                     'Sasia/100m²: ${x.sasiaPer100m2.toStringAsFixed(2)} • '
@@ -294,6 +260,9 @@ class _KalkuloPageState extends State<KalkuloPage> {
     await showDialog(
       context: context,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
             final double m2 = _toDouble(m2C.text);
@@ -310,19 +279,30 @@ class _KalkuloPageState extends State<KalkuloPage> {
 
             return AlertDialog(
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(28),
               ),
               title: Row(
                 children: [
-                  Icon(item == null
-                      ? Icons.add_box_outlined
-                      : Icons.edit_note_outlined),
-                  const SizedBox(width: 10),
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: cs.primary.withOpacity(0.10),
+                    ),
+                    child: Icon(
+                      item == null
+                          ? Icons.add_box_outlined
+                          : Icons.edit_note_outlined,
+                      color: cs.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Text(item == null ? 'Shto produkt' : 'Përditëso produktin'),
                 ],
               ),
               content: SizedBox(
-                width: 720,
+                width: 760,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -374,60 +354,67 @@ class _KalkuloPageState extends State<KalkuloPage> {
                       const SizedBox(height: 14),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(18),
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(22),
                           border: Border.all(
-                            color: Theme.of(context).dividerColor,
+                            color: theme.dividerColor.withOpacity(0.75),
                           ),
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
-                              .withOpacity(0.30),
+                          color: cs.surfaceContainerHighest.withOpacity(0.20),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Këto vlera ruhen për 100m²',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                              'Vlerat bazë për 100m²',
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                             const SizedBox(height: 10),
-                            Text(
-                              'Sasia/100m²: ${sasiaPer100.toStringAsFixed(2)}',
+                            _previewRow(
+                              'Sasia/100m²',
+                              sasiaPer100.toStringAsFixed(2),
                             ),
-                            Text('Vlera/100m²: ${eur(vleraPer100)}'),
-                            Text('TVSH/100m²: ${eur(tvshPer100)}'),
+                            _previewRow(
+                              'Vlera/100m²',
+                              eur(vleraPer100),
+                            ),
+                            _previewRow(
+                              'TVSH/100m²',
+                              eur(tvshPer100),
+                            ),
                             const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 10),
+                              padding: EdgeInsets.symmetric(vertical: 12),
                               child: Divider(height: 1),
                             ),
                             Text(
                               'Preview për ${m2.toStringAsFixed(2)} m²',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                             const SizedBox(height: 10),
-                            Text(
-                              'Sasia totale: ${sasiaTotale.toStringAsFixed(2)}',
+                            _previewRow(
+                              'Sasia totale',
+                              sasiaTotale.toStringAsFixed(2),
                             ),
-                            Text('Vlera totale: ${eur(vleraTotale)}'),
-                            Text('TVSH totale: ${eur(tvshTotale)}'),
+                            _previewRow(
+                              'Vlera totale',
+                              eur(vleraTotale),
+                            ),
+                            _previewRow(
+                              'TVSH totale',
+                              eur(tvshTotale),
+                            ),
                             const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 10),
+                              padding: EdgeInsets.symmetric(vertical: 12),
                               child: Divider(height: 1),
                             ),
-                            Text(
-                              'Vlera + TVSH: ${eur(gjithsej)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            _previewRow(
+                              'Vlera + TVSH',
+                              eur(gjithsej),
+                              bold: true,
                             ),
                           ],
                         ),
@@ -516,23 +503,29 @@ class _KalkuloPageState extends State<KalkuloPage> {
   Future<void> _deleteProduct(ProductCalcItem item) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
-        ),
-        title: const Text('Fshije produktin?'),
-        content: Text('A je i sigurt që don me fshi "${item.emertimi}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Jo'),
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Po'),
-          ),
-        ],
-      ),
+          title: const Text('Fshije produktin?'),
+          content: Text('A je i sigurt që don me fshi "${item.emertimi}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Jo'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red,
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Po'),
+            ),
+          ],
+        );
+      },
     );
 
     if (ok == true && item.id != null) {
@@ -555,10 +548,10 @@ class _KalkuloPageState extends State<KalkuloPage> {
       return;
     }
 
-    if (selectedProducts.isEmpty && !includePaint && selectedLabor == null) {
+    if (selectedProducts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Nuk ka asgjë për me gjeneru në faturë.'),
+          content: Text('Zgjedh të paktën një produkt për faturë.'),
         ),
       );
       return;
@@ -583,6 +576,9 @@ class _KalkuloPageState extends State<KalkuloPage> {
     await showDialog(
       context: context,
       builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final cs = theme.colorScheme;
+
         return StatefulBuilder(
           builder: (ctx, setLocalState) {
             final selectedCols = [
@@ -597,17 +593,28 @@ class _KalkuloPageState extends State<KalkuloPage> {
 
             return AlertDialog(
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(28),
               ),
               title: Row(
-                children: const [
-                  Icon(Icons.receipt_long_outlined),
-                  SizedBox(width: 10),
-                  Text('Gjenero faturën'),
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: cs.primary.withOpacity(0.10),
+                    ),
+                    child: Icon(
+                      Icons.receipt_long_outlined,
+                      color: cs.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text('Gjenero faturën'),
                 ],
               ),
               content: SizedBox(
-                width: 560,
+                width: 580,
                 child: SingleChildScrollView(
                   child: Column(
                     children: [
@@ -634,26 +641,22 @@ class _KalkuloPageState extends State<KalkuloPage> {
                       const SizedBox(height: 14),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.all(14),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: Theme.of(context).dividerColor,
+                            color: theme.dividerColor.withOpacity(0.75),
                           ),
-                          borderRadius: BorderRadius.circular(18),
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerHighest
-                              .withOpacity(0.30),
+                          borderRadius: BorderRadius.circular(20),
+                          color: cs.surfaceContainerHighest.withOpacity(0.20),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               'Zgjedh kolonat për PDF',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.bold),
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                             const SizedBox(height: 10),
                             Wrap(
@@ -707,7 +710,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                             const SizedBox(height: 10),
                             Text(
                               'Kolona të zgjedhura: $selectedCols',
-                              style: Theme.of(context).textTheme.bodyMedium,
+                              style: theme.textTheme.bodyMedium,
                             ),
                           ],
                         ),
@@ -783,19 +786,6 @@ class _KalkuloPageState extends State<KalkuloPage> {
   }) async {
     try {
       final double m2 = _toDouble(m2C.text);
-
-      final double liters = _calcLiters(m2);
-      final int buckets = _calcBuckets(liters);
-
-      final double bucketPrice =
-          includePaint ? (p?.bucketPrice ?? 0).toDouble() : 0.0;
-      final double paintTotal = buckets * bucketPrice;
-
-      final double laborPrice = (selectedLabor?.price ?? 0).toDouble();
-      final double fixedLaborValue = _toDouble(fixedLaborC.text);
-      final double laborTotal =
-          laborFixedValue ? fixedLaborValue : (m2 * laborPrice);
-
       final calcProducts = _selectedProducts;
 
       final double materialTotalPaTvsh = calcProducts.fold<double>(
@@ -812,8 +802,6 @@ class _KalkuloPageState extends State<KalkuloPage> {
         0.0,
         (sum, x) => sum + x.vleraMeTvsh(m2),
       );
-
-      final double grandTotal = materialTotalMeTvsh + laborTotal + paintTotal;
 
       final pdf = pw.Document();
 
@@ -1005,9 +993,10 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   'Materiale me TVSH',
                   _invoiceMoney(materialTotalMeTvsh),
                 ),
-                _pdfInfoBox('Puna', _invoiceMoney(laborTotal)),
-                if (includePaint)
-                  _pdfInfoBox('Bojë', _invoiceMoney(paintTotal)),
+                _pdfInfoBox(
+                  'Produkte',
+                  '${calcProducts.length}',
+                ),
               ],
             ),
             pw.SizedBox(height: 18),
@@ -1048,41 +1037,13 @@ class _KalkuloPageState extends State<KalkuloPage> {
                     ),
                   );
                 }),
-                pw.TableRow(
-                  children: buildCells(
-                    code: '',
-                    name: laborFixedValue
-                        ? '${p?.laborCategory ?? 'Punë'} (vlerë fikse)'
-                        : (selectedLabor?.name ?? p?.laborCategory ?? 'Punë'),
-                    pack: '',
-                    qty: laborFixedValue
-                        ? '1.00'
-                        : '${m2.toStringAsFixed(2)} m²',
-                    value: _invoiceMoney(laborTotal),
-                    vat: '-',
-                    total: _invoiceMoney(laborTotal),
-                  ),
-                ),
-                if (includePaint)
-                  pw.TableRow(
-                    children: buildCells(
-                      code: 'BOJE',
-                      name:
-                          'Bojë (${buckets.toString()} kova / ${liters.toStringAsFixed(2)} L)',
-                      pack: '${bucketSize.toStringAsFixed(0)}L',
-                      qty: '$buckets',
-                      value: _invoiceMoney(paintTotal),
-                      vat: '-',
-                      total: _invoiceMoney(paintTotal),
-                    ),
-                  ),
               ],
             ),
             pw.SizedBox(height: 18),
             pw.Align(
               alignment: pw.Alignment.centerRight,
               child: pw.Container(
-                width: 240,
+                width: 250,
                 padding: const pw.EdgeInsets.all(12),
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(color: PdfColors.black, width: 1),
@@ -1097,15 +1058,9 @@ class _KalkuloPageState extends State<KalkuloPage> {
                     pw.Text(
                       'TVSH materiale: ${_invoiceMoney(materialTotalTvsh)}',
                     ),
-                    pw.SizedBox(height: 4),
-                    pw.Text('Puna: ${_invoiceMoney(laborTotal)}'),
-                    if (includePaint) ...[
-                      pw.SizedBox(height: 4),
-                      pw.Text('Bojë: ${_invoiceMoney(paintTotal)}'),
-                    ],
                     pw.Divider(),
                     pw.Text(
-                      'TOTALI FINAL: ${_invoiceMoney(grandTotal)}',
+                      'TOTALI FINAL: ${_invoiceMoney(materialTotalMeTvsh)}',
                       style: pw.TextStyle(
                         fontSize: 14,
                         fontWeight: pw.FontWeight.bold,
@@ -1240,19 +1195,19 @@ class _KalkuloPageState extends State<KalkuloPage> {
       fillColor: Theme.of(context)
           .colorScheme
           .surfaceContainerHighest
-          .withOpacity(.25),
+          .withOpacity(.20),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide(color: Theme.of(context).dividerColor),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide(
           color: Theme.of(context).dividerColor.withOpacity(0.75),
         ),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         borderSide: BorderSide(
           color: Theme.of(context).colorScheme.primary,
           width: 1.4,
@@ -1267,19 +1222,6 @@ class _KalkuloPageState extends State<KalkuloPage> {
     final cs = theme.colorScheme;
 
     final double m2 = _toDouble(m2C.text);
-
-    final double liters = _calcLiters(m2);
-    final int buckets = _calcBuckets(liters);
-
-    final double bucketPrice =
-        includePaint ? (p?.bucketPrice ?? 0).toDouble() : 0.0;
-    final double paintTotal = buckets * bucketPrice;
-
-    final double laborPrice = (selectedLabor?.price ?? 0).toDouble();
-    final double fixedLaborValue = _toDouble(fixedLaborC.text);
-    final double laborTotal =
-        laborFixedValue ? fixedLaborValue : (m2 * laborPrice);
-
     final calcProducts = _selectedProducts;
 
     final double materialTotalPaTvsh = calcProducts.fold<double>(
@@ -1297,8 +1239,6 @@ class _KalkuloPageState extends State<KalkuloPage> {
       (sum, x) => sum + x.vleraMeTvsh(m2),
     );
 
-    final double grandTotal = materialTotalMeTvsh + laborTotal + paintTotal;
-
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -1307,22 +1247,22 @@ class _KalkuloPageState extends State<KalkuloPage> {
           colors: [
             cs.surface,
             cs.surface,
-            cs.surfaceContainerLowest.withOpacity(0.55),
+            cs.surfaceContainerLowest.withOpacity(0.35),
           ],
         ),
       ),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1500),
+            constraints: const BoxConstraints(maxWidth: 1450),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _HeroHeader(
                   title: 'Kalkulo',
                   subtitle:
-                      'Kalkulim profesional i materialit, bojës, punës dhe faturës',
+                      'Kalkulim premium i materialeve dhe gjenerim profesional i faturës',
                   trailing: Wrap(
                     spacing: 10,
                     runSpacing: 10,
@@ -1363,10 +1303,10 @@ class _KalkuloPageState extends State<KalkuloPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Container(
-                            width: 52,
-                            height: 52,
+                            width: 56,
+                            height: 56,
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(18),
                               color: cs.primary.withOpacity(0.10),
                             ),
                             child: Icon(
@@ -1382,7 +1322,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                                 Text(
                                   firma.emri.isEmpty ? 'Firma' : firma.emri,
                                   style: theme.textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.w800,
+                                    fontWeight: FontWeight.w900,
                                   ),
                                 ),
                                 if (firma.description.isNotEmpty) ...[
@@ -1410,69 +1350,6 @@ class _KalkuloPageState extends State<KalkuloPage> {
                       ),
                     ),
                   ),
-                if (p == null)
-                  const Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: Text('Duke i lexu parametrat...'),
-                  )
-                else
-                  _PremiumSectionCard(
-                    title: 'Parametrat bazë',
-                    icon: Icons.tune_outlined,
-                    child: Column(
-                      children: [
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            _SwitchChip(
-                              icon: Icons.format_paint_outlined,
-                              label: 'Ngjyrosje me bojë',
-                              value: includePaint,
-                              onChanged: (v) {
-                                setState(() {
-                                  includePaint = v;
-                                });
-                              },
-                            ),
-                            _InfoChip(
-                              icon: Icons.work_outline,
-                              label: 'Kategori pune',
-                              value: p!.laborCategory,
-                            ),
-                            if (includePaint) ...[
-                              _InfoChip(
-                                icon: Icons.water_drop_outlined,
-                                label: 'L/100m²',
-                                value: '${p!.litersPer100}',
-                              ),
-                              _InfoChip(
-                                icon: Icons.trending_down_outlined,
-                                label: 'Humbje',
-                                value: '${p!.wastePct}%',
-                              ),
-                              _InfoChip(
-                                icon: Icons.layers_outlined,
-                                label: 'Shtresa',
-                                value: '${p!.coats}',
-                              ),
-                              _InfoChip(
-                                icon: Icons.inventory_2_outlined,
-                                label: 'Kova',
-                                value: '${bucketSize.toStringAsFixed(0)}L',
-                              ),
-                              _InfoChip(
-                                icon: Icons.payments_outlined,
-                                label: 'Çmimi kove',
-                                value: eur((p!.bucketPrice).toDouble()),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 16),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1488,7 +1365,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                               runSpacing: 14,
                               children: [
                                 SizedBox(
-                                  width: 300,
+                                  width: 320,
                                   child: TextField(
                                     controller: m2C,
                                     keyboardType:
@@ -1496,103 +1373,47 @@ class _KalkuloPageState extends State<KalkuloPage> {
                                       decimal: true,
                                     ),
                                     decoration: _inputDecoration(
-                                      label: laborFixedValue
-                                          ? 'Sipërfaqja (m²) - vetëm për materiale'
-                                          : 'Sipërfaqja (m²)',
+                                      label: 'Sipërfaqja (m²)',
                                       hint: 'p.sh. 120',
                                       prefixIcon: const Icon(
-                                          Icons.square_foot_outlined),
+                                        Icons.square_foot_outlined,
+                                      ),
                                     ),
                                     onChanged: (_) => setState(() {}),
                                   ),
                                 ),
-                                SizedBox(
-                                  width: 440,
-                                  child: DropdownButtonFormField<QmimorjaItem>(
-                                    value: selectedLabor,
-                                    items: laborItems
-                                        .map(
-                                          (x) => DropdownMenuItem<QmimorjaItem>(
-                                            value: x,
-                                            child: Text(
-                                              '${x.name} • ${eur(x.price)}/${x.unit}',
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
-                                    onChanged: laborItems.isEmpty
-                                        ? null
-                                        : (v) =>
-                                            setState(() => selectedLabor = v),
-                                    decoration: _inputDecoration(
-                                      label: 'Zgjedh punën',
-                                      prefixIcon:
-                                          const Icon(Icons.handyman_outlined),
-                                    ),
-                                    borderRadius: BorderRadius.circular(18),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 14,
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          _PremiumSectionCard(
-                            title: 'Puna',
-                            icon: Icons.engineering_outlined,
-                            child: Wrap(
-                              spacing: 16,
-                              runSpacing: 12,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                _SwitchChip(
-                                  icon: Icons.price_change_outlined,
-                                  label: 'Vlerë fikse për punën',
-                                  value: laborFixedValue,
-                                  onChanged: (v) {
-                                    setState(() {
-                                      laborFixedValue = v;
-                                    });
-                                  },
-                                ),
-                                if (laborFixedValue)
-                                  SizedBox(
-                                    width: 240,
-                                    child: TextField(
-                                      controller: fixedLaborC,
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                        decimal: true,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(18),
+                                    color: cs.surfaceContainerHighest
+                                        .withOpacity(0.20),
+                                    border: Border.all(
+                                      color:
+                                          theme.dividerColor.withOpacity(0.75),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline,
+                                        color: cs.primary,
                                       ),
-                                      decoration: _inputDecoration(
-                                        label: 'Shuma fikse',
-                                        hint: 'p.sh. 300',
-                                        prefixText: '€ ',
-                                        prefixIcon: const Icon(
-                                          Icons.euro_outlined,
+                                      const SizedBox(width: 10),
+                                      Text(
+                                        'Kjo faqe llogarit vetëm materialet',
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
-                                      onChanged: (_) => setState(() {}),
-                                    ),
+                                    ],
                                   ),
-                                if (laborFixedValue)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 12,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      color: cs.primary.withOpacity(.06),
-                                      border: Border.all(
-                                        color: cs.primary.withOpacity(.18),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'Kur kjo është aktive, puna nuk llogaritet me m².',
-                                      style: theme.textTheme.bodyMedium,
-                                    ),
-                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -1609,23 +1430,6 @@ class _KalkuloPageState extends State<KalkuloPage> {
                           spacing: 14,
                           runSpacing: 14,
                           children: [
-                            if (includePaint)
-                              _PaintSummaryBox(
-                                buckets: buckets,
-                                liters: liters,
-                                paintTotal: paintTotal,
-                              ),
-                            _StatPill(
-                              icon: Icons.handyman_outlined,
-                              label: laborFixedValue
-                                  ? '${p?.laborCategory ?? 'Punë'} (fikse)'
-                                  : (selectedLabor?.name ??
-                                      p?.laborCategory ??
-                                      'Punë'),
-                              value: laborFixedValue
-                                  ? eur(laborTotal)
-                                  : '${eur(laborTotal)} (${eur(laborPrice)}/${selectedLabor?.unit ?? 'm²'})',
-                            ),
                             _StatPill(
                               icon: Icons.widgets_outlined,
                               label: 'Materiale pa TVSH',
@@ -1647,7 +1451,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                               value: '${calcProducts.length}',
                             ),
                             _TotalSummaryBox(
-                              total: grandTotal,
+                              total: materialTotalMeTvsh,
                             ),
                           ],
                         ),
@@ -1684,11 +1488,11 @@ class _KalkuloPageState extends State<KalkuloPage> {
                   child: products.isEmpty
                       ? Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.all(24),
+                          padding: const EdgeInsets.all(28),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(20),
                             color: theme.colorScheme.surfaceContainerHighest
-                                .withOpacity(0.25),
+                                .withOpacity(0.18),
                             border: Border.all(
                               color: theme.dividerColor,
                             ),
@@ -1698,13 +1502,21 @@ class _KalkuloPageState extends State<KalkuloPage> {
                           ),
                         )
                       : ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(20),
                           child: Container(
                             decoration: BoxDecoration(
                               border: Border.all(
                                 color: theme.dividerColor.withOpacity(0.7),
                               ),
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(20),
+                              color: cs.surface,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.03),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
                             ),
                             child: SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
@@ -1713,13 +1525,13 @@ class _KalkuloPageState extends State<KalkuloPage> {
                                   dividerColor: Colors.transparent,
                                 ),
                                 child: DataTable(
-                                  headingRowHeight: 56,
-                                  dataRowMinHeight: 58,
-                                  dataRowMaxHeight: 68,
+                                  headingRowHeight: 58,
+                                  dataRowMinHeight: 60,
+                                  dataRowMaxHeight: 72,
                                   columnSpacing: 24,
                                   headingRowColor:
-                                      MaterialStateProperty.resolveWith(
-                                    (_) => cs.primary.withOpacity(0.08),
+                                      WidgetStateProperty.resolveWith(
+                                    (_) => cs.primary.withOpacity(0.07),
                                   ),
                                   columns: const [
                                     DataColumn(label: Text('Në kalkulim')),
@@ -1755,13 +1567,13 @@ class _KalkuloPageState extends State<KalkuloPage> {
                                           Text(
                                             item.kodi,
                                             style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
+                                              fontWeight: FontWeight.w800,
                                             ),
                                           ),
                                         ),
                                         DataCell(
                                           SizedBox(
-                                            width: 220,
+                                            width: 240,
                                             child: Text(
                                               item.emertimi,
                                               overflow: TextOverflow.ellipsis,
@@ -1778,7 +1590,7 @@ class _KalkuloPageState extends State<KalkuloPage> {
                                           Text(
                                             eur(total),
                                             style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
+                                              fontWeight: FontWeight.w800,
                                             ),
                                           ),
                                         ),
@@ -1786,42 +1598,29 @@ class _KalkuloPageState extends State<KalkuloPage> {
                                           Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Container(
-                                                decoration: BoxDecoration(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  color: cs.primary
-                                                      .withOpacity(0.10),
+                                              FilledButton.tonalIcon(
+                                                onPressed: () =>
+                                                    _openProductDialog(
+                                                  item: item,
                                                 ),
-                                                child: IconButton(
-                                                  tooltip: 'Ndrysho',
-                                                  onPressed: () =>
-                                                      _openProductDialog(
-                                                    item: item,
-                                                  ),
-                                                  icon: Icon(
-                                                    Icons.edit_outlined,
-                                                    color: cs.primary,
-                                                  ),
+                                                icon: const Icon(
+                                                  Icons.edit_outlined,
+                                                  size: 18,
                                                 ),
+                                                label: const Text('Ndrysho'),
                                               ),
                                               const SizedBox(width: 8),
-                                              Container(
-                                                decoration: BoxDecoration(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  color: Colors.red
-                                                      .withOpacity(0.08),
+                                              FilledButton.tonalIcon(
+                                                style: FilledButton.styleFrom(
+                                                  foregroundColor: Colors.red,
                                                 ),
-                                                child: IconButton(
-                                                  tooltip: 'Fshij',
-                                                  onPressed: () =>
-                                                      _deleteProduct(item),
-                                                  icon: const Icon(
-                                                    Icons.delete_outline,
-                                                    color: Colors.red,
-                                                  ),
+                                                onPressed: () =>
+                                                    _deleteProduct(item),
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  size: 18,
                                                 ),
+                                                label: const Text('Fshij'),
                                               ),
                                             ],
                                           ),
@@ -1839,6 +1638,30 @@ class _KalkuloPageState extends State<KalkuloPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _previewRow(String label, String value, {bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1862,24 +1685,24 @@ class _HeroHeader extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(30),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            cs.primary.withOpacity(0.16),
-            cs.secondary.withOpacity(0.10),
-            cs.surfaceContainerHighest.withOpacity(0.35),
+            cs.primary.withOpacity(0.12),
+            cs.secondary.withOpacity(0.06),
+            cs.surfaceContainerHighest.withOpacity(0.22),
           ],
         ),
         border: Border.all(
-          color: cs.primary.withOpacity(0.15),
+          color: cs.primary.withOpacity(0.12),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),
@@ -1897,10 +1720,10 @@ class _HeroHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 62,
-                  height: 62,
+                  width: 64,
+                  height: 64,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(20),
                     color: cs.primary.withOpacity(0.14),
                   ),
                   child: Icon(
@@ -1955,16 +1778,16 @@ class _PremiumCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(26),
         color: cs.surface,
         border: Border.all(
           color: Theme.of(context).dividerColor.withOpacity(0.7),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.045),
+            color: Colors.black.withOpacity(0.04),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -1997,10 +1820,10 @@ class _PremiumSectionCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(15),
                   color:
                       Theme.of(context).colorScheme.primary.withOpacity(0.10),
                 ),
@@ -2014,7 +1837,7 @@ class _PremiumSectionCard extends StatelessWidget {
                 child: Text(
                   title,
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
                       ),
                 ),
               ),
@@ -2060,219 +1883,23 @@ class _PremiumTextField extends StatelessWidget {
         fillColor: Theme.of(context)
             .colorScheme
             .surfaceContainerHighest
-            .withOpacity(0.25),
+            .withOpacity(0.18),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           borderSide: BorderSide(
             color: Theme.of(context).dividerColor.withOpacity(0.75),
           ),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           borderSide: BorderSide(
             color: Theme.of(context).colorScheme.primary,
             width: 1.4,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _InfoChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoChip({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: cs.surfaceContainerHighest.withOpacity(0.28),
-        border: Border.all(
-          color: Theme.of(context).dividerColor.withOpacity(0.7),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: cs.primary),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SwitchChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _SwitchChip({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: value
-            ? cs.primary.withOpacity(0.10)
-            : cs.surfaceContainerHighest.withOpacity(0.22),
-        border: Border.all(
-          color: value
-              ? cs.primary.withOpacity(0.35)
-              : Theme.of(context).dividerColor.withOpacity(0.7),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: value ? cs.primary : null),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(width: 10),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaintSummaryBox extends StatelessWidget {
-  final int buckets;
-  final double liters;
-  final double paintTotal;
-
-  const _PaintSummaryBox({
-    required this.buckets,
-    required this.liters,
-    required this.paintTotal,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const greenColor = Colors.green;
-
-    Widget item({
-      required IconData icon,
-      required String label,
-      required String value,
-    }) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          color: Theme.of(context).cardColor.withOpacity(0.20),
-          border: Border.all(
-            color: greenColor.withOpacity(0.30),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: greenColor),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: greenColor.withOpacity(0.55),
-          width: 1.4,
-        ),
-        gradient: LinearGradient(
-          colors: [
-            greenColor.withOpacity(0.10),
-            greenColor.withOpacity(0.04),
-          ],
-        ),
-      ),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: [
-          item(
-            icon: Icons.inventory_2_outlined,
-            label: 'Kova',
-            value: '$buckets',
-          ),
-          item(
-            icon: Icons.opacity_outlined,
-            label: 'Litra',
-            value: '${liters.toStringAsFixed(2)} L',
-          ),
-          item(
-            icon: Icons.format_paint_outlined,
-            label: 'Bojë',
-            value: eur(paintTotal),
-          ),
-        ],
       ),
     );
   }
@@ -2292,16 +1919,16 @@ class _TotalSummaryBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         gradient: LinearGradient(
           colors: [
-            cs.primary.withOpacity(0.18),
-            cs.primary.withOpacity(0.08),
+            cs.primary.withOpacity(0.16),
+            cs.primary.withOpacity(0.07),
           ],
         ),
         border: Border.all(
-          color: cs.primary.withOpacity(0.45),
-          width: 1.5,
+          color: cs.primary.withOpacity(0.40),
+          width: 1.3,
         ),
       ),
       child: Row(
@@ -2356,16 +1983,16 @@ class _StatPill extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Theme.of(context).dividerColor),
-        color: cs.surfaceContainerHighest.withOpacity(0.24),
+        color: cs.surfaceContainerHighest.withOpacity(0.20),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 34,
-            height: 34,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(11),
+              borderRadius: BorderRadius.circular(12),
               color: cs.primary.withOpacity(0.10),
             ),
             child: Icon(icon, size: 18, color: cs.primary),
