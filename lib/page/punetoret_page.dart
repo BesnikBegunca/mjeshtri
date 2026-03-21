@@ -29,6 +29,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
   bool loading = true;
   List<Worker> workers = [];
   Map<int, List<PayrollEntry>> payrollByWorker = {};
+  Map<int, List<WorkerAdvance>> advancesByWorker = {};
   final Set<int> expandedStatsWorkerIds = {};
 
   static const _monthNames = [
@@ -57,15 +58,21 @@ class _PunetoretPageState extends State<PunetoretPage> {
 
     workers = await WorkersDao.I.list();
 
-    final map = <int, List<PayrollEntry>>{};
+    final payrollMap = <int, List<PayrollEntry>>{};
+    final advanceMap = <int, List<WorkerAdvance>>{};
     for (final w in workers) {
       if (w.id == null) continue;
-      final list = await PayrollDao.I.listForWorker(w.id!);
-      list.sort((a, b) => b.month.compareTo(a.month));
-      map[w.id!] = list;
+      final payrollList = await PayrollDao.I.listForWorker(w.id!);
+      payrollList.sort((a, b) => b.month.compareTo(a.month));
+      payrollMap[w.id!] = payrollList;
+
+      final advanceList = await WorkerAdvancesDao.I.listForWorker(w.id!);
+      advanceList.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      advanceMap[w.id!] = advanceList;
     }
 
-    payrollByWorker = map;
+    payrollByWorker = payrollMap;
+    advancesByWorker = advanceMap;
 
     if (mounted) {
       setState(() => loading = false);
@@ -116,6 +123,20 @@ class _PunetoretPageState extends State<PunetoretPage> {
     return payrollByWorker[worker.id!] ?? [];
   }
 
+  List<WorkerAdvance> _advancesForWorker(Worker worker) {
+    if (worker.id == null) return [];
+    return advancesByWorker[worker.id!] ?? [];
+  }
+
+  double _advancesTotalForWorker(Worker worker) {
+    return _advancesForWorker(worker).fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  double _remainingForWorker(Worker worker) {
+    return math.max(
+        0.0, _grossForWorker(worker) - _advancesTotalForWorker(worker));
+  }
+
   PayrollEntry? _entryForWorkerMonth(Worker worker, String ym) {
     final list = _entriesForWorker(worker);
     for (final e in list) {
@@ -152,6 +173,14 @@ class _PunetoretPageState extends State<PunetoretPage> {
 
   double get _totalCostAll {
     return workers.fold(0.0, (sum, w) => sum + _costForWorker(w));
+  }
+
+  double get _totalAdvancesAll {
+    return workers.fold(0.0, (sum, w) => sum + _advancesTotalForWorker(w));
+  }
+
+  double get _totalRemainingAll {
+    return workers.fold(0.0, (sum, w) => sum + _remainingForWorker(w));
   }
 
   int get _totalPayrollRowsAll {
@@ -368,9 +397,231 @@ class _PunetoretPageState extends State<PunetoretPage> {
     Set<DateTime> workedDays =
         _decodeWorkedDays(existing?.workedDaysJson).map(_dateOnly).toSet();
 
+    List<WorkerAdvance> monthAdvances =
+        await WorkerAdvancesDao.I.listForWorkerMonth(worker.id!, seedYm);
+
     Future<PayrollEntry?> findMonthEntry() async {
       final ym = _ymFromYearMonth(year, month);
       return PayrollDao.I.findForWorkerMonth(worker.id!, ym);
+    }
+
+    Future<List<WorkerAdvance>>
+        ltc1q7mhxnw82zyzkjvdtv57geqjjsw0mhgrvq6nx83() async {
+      final ym = _ymFromYearMonth(year, month);
+      final list = await WorkerAdvancesDao.I.listForWorkerMonth(worker.id!, ym);
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return list;
+    }
+
+    List<WorkerAdvance> advancesForDay(DateTime day) {
+      return monthAdvances.where((a) => _sameDate(a.createdAt, day)).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }
+
+    double totalAdvanceForDay(DateTime day) {
+      return advancesForDay(day).fold(0.0, (sum, item) => sum + item.amount);
+    }
+
+    Future<void> refreshMonthAdvances(StateSetter setLocal) async {
+      final refreshed = await ltc1q7mhxnw82zyzkjvdtv57geqjjsw0mhgrvq6nx83();
+      setLocal(() {
+        monthAdvances = refreshed;
+      });
+    }
+
+    Future<void> openAdvanceDialogForDay(
+      BuildContext dialogContext,
+      StateSetter setLocal,
+      DateTime day,
+    ) async {
+      final normalizedDay = _dateOnly(day);
+
+      final amountC = TextEditingController();
+      final noteC = TextEditingController();
+
+      final result = await showDialog<bool>(
+        context: dialogContext,
+        builder: (sheetContext) {
+          return StatefulBuilder(
+            builder: (sheetContext, setSheetState) {
+              final dayItems = advancesForDay(normalizedDay);
+              final dayTotal = dayItems.fold<double>(
+                0.0,
+                (sum, item) => sum + item.amount,
+              );
+
+              Future<void> reloadDayItems() async {
+                final refreshed =
+                    await ltc1q7mhxnw82zyzkjvdtv57geqjjsw0mhgrvq6nx83();
+                setLocal(() {
+                  monthAdvances = refreshed;
+                });
+                setSheetState(() {});
+              }
+
+              Future<void> addAdvanceForDay() async {
+                final amount =
+                    double.tryParse(amountC.text.replaceAll(',', '.')) ?? 0;
+                if (amount <= 0) return;
+
+                final item = WorkerAdvance(
+                  workerId: worker.id!,
+                  month: _ymFromYearMonth(year, month),
+                  amount: amount,
+                  note: noteC.text.trim().isEmpty ? null : noteC.text.trim(),
+                  createdAt: normalizedDay,
+                );
+
+                await WorkerAdvancesDao.I.insert(item);
+                amountC.clear();
+                noteC.clear();
+                await reloadDayItems();
+              }
+
+              Future<void> deleteAdvanceForDay(WorkerAdvance item) async {
+                if (item.id == null) return;
+                await WorkerAdvancesDao.I.delete(item.id!);
+                await reloadDayItems();
+              }
+
+              return AlertDialog(
+                title: Text(
+                  'Avansë për ${normalizedDay.day.toString().padLeft(2, '0')}.${normalizedDay.month.toString().padLeft(2, '0')}.${normalizedDay.year}',
+                ),
+                content: SizedBox(
+                  width: 470,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Colors.orange.withOpacity(0.30),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Gjithsej avansë për këtë ditë: ${eur(dayTotal)}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                dayItems.isEmpty
+                                    ? 'Ende nuk ka avansë për këtë ditë.'
+                                    : 'Këto janë avansat e ruajtura për këtë ditë${workedDays.any((d) => _sameDate(d, normalizedDay)) ? ' pune' : ''}.',
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (dayItems.isNotEmpty) ...[
+                          ...dayItems.map((item) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.04),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.orange.withOpacity(0.25),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          eur(item.amount),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          item.note == null ||
+                                                  item.note!.trim().isEmpty
+                                              ? 'Pa shënim'
+                                              : item.note!,
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(
+                                              0.78,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Fshij avancën',
+                                    onPressed: () => deleteAdvanceForDay(item),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.redAccent,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          const SizedBox(height: 8),
+                        ],
+                        TextField(
+                          controller: amountC,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: 'Shuma e avansës (€)',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: noteC,
+                          decoration: const InputDecoration(
+                            labelText: 'Shënim',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(sheetContext, false),
+                    child: const Text('Mbyll'),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      await addAdvanceForDay();
+                    },
+                    icon: const Icon(Icons.add_card),
+                    label: const Text('Shto avans'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (result != null) {
+        await refreshMonthAdvances(setLocal);
+      } else {
+        await refreshMonthAdvances(setLocal);
+      }
     }
 
     void syncWorkedDaysMonth() {
@@ -469,6 +720,8 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                         month = v;
                                         final monthEntry =
                                             await findMonthEntry();
+                                        final monthAdvanceList =
+                                            await ltc1q7mhxnw82zyzkjvdtv57geqjjsw0mhgrvq6nx83();
 
                                         setLocal(() {
                                           workedDays = _decodeWorkedDays(
@@ -491,6 +744,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                               (monthEntry?.employerPct ?? 10)
                                                   .toString();
                                           noteC.text = monthEntry?.note ?? '';
+                                          monthAdvances = monthAdvanceList;
                                         });
                                       },
                               ),
@@ -588,7 +842,7 @@ class _PunetoretPageState extends State<PunetoretPage> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Kliko ditët që ka punu punëtori. E diela është ditë pushimi.',
+                            'Kliko ditët që ka punu punëtori. Nga ikona e vogël në qoshe mundesh me shtu avans edhe kur nuk ka punu. Nëse dita ka avans dhe nuk është ditë pune, rrethi del i kuq. Nëse ka avans dhe është ditë pune, border-i del portokalli.',
                             style: Theme.of(context)
                                 .textTheme
                                 .bodyMedium
@@ -658,24 +912,44 @@ class _PunetoretPageState extends State<PunetoretPage> {
                               final isSunday = _isSunday(day);
                               final isSelected =
                                   workedDays.any((d) => _sameDate(d, day));
+                              final dayAdvanceTotal = totalAdvanceForDay(day);
+                              final hasAdvance = dayAdvanceTotal > 0;
+
+                              final hasAdvanceWithoutWork =
+                                  hasAdvance && !isSelected;
+                              final hasAdvanceOnWorkedDay =
+                                  hasAdvance && isSelected;
 
                               final bgColor = isSunday
                                   ? Colors.red.withOpacity(0.08)
-                                  : isSelected
-                                      ? Colors.green.withOpacity(0.20)
-                                      : Colors.white.withOpacity(0.04);
+                                  : hasAdvanceWithoutWork
+                                      ? Colors.red.withOpacity(0.12)
+                                      : hasAdvanceOnWorkedDay
+                                          ? Colors.orange.withOpacity(0.14)
+                                          : isSelected
+                                              ? Colors.green.withOpacity(0.20)
+                                              : Colors.white.withOpacity(0.04);
 
                               final borderColor = isSunday
                                   ? Colors.red.withOpacity(0.24)
-                                  : isSelected
-                                      ? Colors.green.withOpacity(0.45)
-                                      : Colors.white.withOpacity(0.08);
+                                  : hasAdvanceWithoutWork
+                                      ? Colors.redAccent.withOpacity(0.95)
+                                      : hasAdvanceOnWorkedDay
+                                          ? Colors.orangeAccent
+                                              .withOpacity(0.95)
+                                          : isSelected
+                                              ? Colors.green.withOpacity(0.45)
+                                              : Colors.white.withOpacity(0.08);
 
                               final textColor = isSunday
                                   ? Colors.redAccent
-                                  : isSelected
-                                      ? Colors.greenAccent
-                                      : Colors.white;
+                                  : hasAdvanceWithoutWork
+                                      ? Colors.redAccent
+                                      : hasAdvanceOnWorkedDay
+                                          ? Colors.orangeAccent
+                                          : isSelected
+                                              ? Colors.greenAccent
+                                              : Colors.white;
 
                               return InkWell(
                                 onTap: isSunday ? null : () => toggleDay(day),
@@ -684,27 +958,112 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                   decoration: BoxDecoration(
                                     color: bgColor,
                                     borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(color: borderColor),
+                                    border: Border.all(
+                                      color: borderColor,
+                                      width: hasAdvance ? 2.0 : 1,
+                                    ),
+                                    boxShadow: hasAdvance
+                                        ? [
+                                            BoxShadow(
+                                              color: Colors.orange.withOpacity(
+                                                0.16,
+                                              ),
+                                              blurRadius: 12,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ]
+                                        : null,
                                   ),
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
+                                  child: Stack(
                                     children: [
-                                      Text(
-                                        '$dayNumber',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 16,
-                                          color: textColor,
+                                      Positioned(
+                                        top: 4,
+                                        right: 4,
+                                        child: InkWell(
+                                          borderRadius:
+                                              BorderRadius.circular(30),
+                                          onTap: isSunday
+                                              ? null
+                                              : () async {
+                                                  await openAdvanceDialogForDay(
+                                                    context,
+                                                    setLocal,
+                                                    day,
+                                                  );
+                                                },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: BoxDecoration(
+                                              color: hasAdvance
+                                                  ? Colors.orange.withOpacity(
+                                                      0.22,
+                                                    )
+                                                  : Colors.white.withOpacity(
+                                                      0.08,
+                                                    ),
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: hasAdvance
+                                                    ? Colors.orangeAccent
+                                                    : Colors.white
+                                                        .withOpacity(0.18),
+                                              ),
+                                            ),
+                                            child: Icon(
+                                              hasAdvance
+                                                  ? Icons.payments
+                                                  : Icons.add_card,
+                                              size: 14,
+                                              color: hasAdvance
+                                                  ? Colors.orangeAccent
+                                                  : Colors.white70,
+                                            ),
+                                          ),
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        isSunday
-                                            ? 'Pushim'
-                                            : (isSelected ? 'Punë' : '—'),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: textColor.withOpacity(0.90),
+                                      Center(
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              '$dayNumber',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 16,
+                                                color: textColor,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              isSunday
+                                                  ? 'Pushim'
+                                                  : (hasAdvanceWithoutWork
+                                                      ? 'Avans'
+                                                      : (hasAdvanceOnWorkedDay
+                                                          ? 'Punë + Avans'
+                                                          : (isSelected
+                                                              ? 'Punë'
+                                                              : '—'))),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: textColor.withOpacity(
+                                                  0.90,
+                                                ),
+                                              ),
+                                            ),
+                                            if (hasAdvance) ...[
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                eur(dayAdvanceTotal),
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: Colors.orangeAccent,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
                                     ],
@@ -746,6 +1105,30 @@ class _PunetoretPageState extends State<PunetoretPage> {
                           label: 'Kosto firmës',
                           value: eur(cost),
                           icon: Icons.business_center,
+                        ),
+                        _MiniInfoBadge(
+                          label: 'Avansat e muajit',
+                          value: eur(
+                            monthAdvances.fold(
+                              0.0,
+                              (sum, item) => sum + item.amount,
+                            ),
+                          ),
+                          icon: Icons.add_card,
+                        ),
+                        _MiniInfoBadge(
+                          label: 'I mbesin me marrë',
+                          value: eur(
+                            math.max(
+                              0.0,
+                              gross -
+                                  monthAdvances.fold(
+                                    0.0,
+                                    (sum, item) => sum + item.amount,
+                                  ),
+                            ),
+                          ),
+                          icon: Icons.payments_outlined,
                         ),
                       ],
                     ),
@@ -796,20 +1179,24 @@ class _PunetoretPageState extends State<PunetoretPage> {
     await _savePdf(
       title: 'Rrogat - ${w.fullName} (${w.position})',
       rows: rows,
+      advances: _advancesForWorker(w),
       filename: 'rrogat_${w.fullName.replaceAll(" ", "_")}.pdf',
     );
   }
 
   Future<void> _exportPdfAll() async {
     final rows = <PayrollPdfRow>[];
+    final advances = <WorkerAdvance>[];
     for (final w in workers) {
       for (final e in _entriesForWorker(w)) {
         rows.add(PayrollPdfRow(w, e));
       }
+      advances.addAll(_advancesForWorker(w));
     }
     await _savePdf(
       title: 'Raport Rrogash - Krejt Punëtorët',
       rows: rows,
+      advances: advances,
       filename: 'raport_rrogash_krejt.pdf',
     );
   }
@@ -817,11 +1204,16 @@ class _PunetoretPageState extends State<PunetoretPage> {
   Future<void> _savePdf({
     required String title,
     required List<PayrollPdfRow> rows,
+    required List<WorkerAdvance> advances,
     required String filename,
   }) async {
     if (rows.isEmpty) return;
 
-    final bytes = await PayrollPdf.build(title: title, rows: rows);
+    final bytes = await PayrollPdf.build(
+      title: title,
+      rows: rows,
+      advances: advances,
+    );
 
     final loc = await getSaveLocation(
       suggestedName: filename,
@@ -1097,6 +1489,16 @@ class _PunetoretPageState extends State<PunetoretPage> {
                                   value: eur(_costForWorker(w)),
                                   icon: Icons.business_center,
                                 ),
+                                _MiniInfoBadge(
+                                  label: 'Avans i marrë',
+                                  value: eur(_advancesTotalForWorker(w)),
+                                  icon: Icons.add_card,
+                                ),
+                                _MiniInfoBadge(
+                                  label: 'I mbesin me marrë',
+                                  value: eur(_remainingForWorker(w)),
+                                  icon: Icons.payments_outlined,
+                                ),
                               ],
                             ),
                           ],
@@ -1150,6 +1552,16 @@ class _PunetoretPageState extends State<PunetoretPage> {
                 value: eur(_totalCostAll),
                 icon: Icons.business_center,
               ),
+              _TotalInfoCard(
+                title: 'Totali Avanseve',
+                value: eur(_totalAdvancesAll),
+                icon: Icons.add_card,
+              ),
+              _TotalInfoCard(
+                title: 'Totali që mbesin',
+                value: eur(_totalRemainingAll),
+                icon: Icons.payments_outlined,
+              ),
             ],
           ),
         ),
@@ -1191,6 +1603,7 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
 
   bool loading = true;
   List<PayrollEntry> payroll = [];
+  List<WorkerAdvance> allAdvances = [];
 
   @override
   void initState() {
@@ -1217,7 +1630,12 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
         ? []
         : await PayrollDao.I.listForWorker(widget.worker.id!);
 
+    allAdvances = widget.worker.id == null
+        ? []
+        : await WorkerAdvancesDao.I.listForWorker(widget.worker.id!);
+
     payroll.sort((a, b) => b.month.compareTo(a.month));
+    allAdvances.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     if (mounted) {
       setState(() => loading = false);
@@ -1238,6 +1656,14 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
 
   int get _totalWorkedDays {
     return payroll.fold(0, (sum, e) => sum + e.workedDaysCount);
+  }
+
+  double get _totalAdvances {
+    return allAdvances.fold(0.0, (sum, e) => sum + e.amount);
+  }
+
+  double get _remainingToReceive {
+    return math.max(0.0, _totalGross - _totalAdvances);
   }
 
   PayrollEntry? get _currentMonthPayroll {
@@ -1471,6 +1897,16 @@ class _WorkerDetailsPageState extends State<WorkerDetailsPage>
                             title: 'Totali Kosto',
                             value: eur(_totalEmployerCost),
                             icon: Icons.business_center,
+                          ),
+                          _TotalInfoCard(
+                            title: 'Totali Avanseve',
+                            value: eur(_totalAdvances),
+                            icon: Icons.add_card,
+                          ),
+                          _TotalInfoCard(
+                            title: 'I mbesin me marrë',
+                            value: eur(_remainingToReceive),
+                            icon: Icons.payments_outlined,
                           ),
                         ],
                       ),
