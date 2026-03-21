@@ -32,7 +32,7 @@ class AppDb {
 
     db = await openDatabase(
       path,
-      version: 11,
+      version: 12,
       onConfigure: (d) async {
         await d.execute('PRAGMA foreign_keys = ON;');
       },
@@ -163,6 +163,27 @@ class AppDb {
             amount REAL NOT NULL DEFAULT 0,
             note TEXT,
             FOREIGN KEY(jobId) REFERENCES jobs(id) ON DELETE CASCADE
+          );
+        ''');
+
+        await d.execute('''
+          CREATE TABLE app_license (
+            id INTEGER PRIMARY KEY,
+            installDate TEXT NOT NULL,
+            expiryDate TEXT NOT NULL,
+            lastUpdatedAt TEXT NOT NULL
+          );
+        ''');
+
+        await d.execute('''
+          CREATE TABLE license_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actionType TEXT NOT NULL,
+            monthsAdded INTEGER NOT NULL DEFAULT 0,
+            previousExpiryDate TEXT,
+            newExpiryDate TEXT NOT NULL,
+            createdAt TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT ''
           );
         ''');
 
@@ -341,6 +362,29 @@ class AppDb {
             'workedDaysJson',
             "ALTER TABLE payroll_entries ADD COLUMN workedDaysJson TEXT;",
           );
+        }
+
+        if (oldV < 12) {
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS app_license (
+              id INTEGER PRIMARY KEY,
+              installDate TEXT NOT NULL,
+              expiryDate TEXT NOT NULL,
+              lastUpdatedAt TEXT NOT NULL
+            );
+          ''');
+
+          await d.execute('''
+            CREATE TABLE IF NOT EXISTS license_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              actionType TEXT NOT NULL,
+              monthsAdded INTEGER NOT NULL DEFAULT 0,
+              previousExpiryDate TEXT,
+              newExpiryDate TEXT NOT NULL,
+              createdAt TEXT NOT NULL,
+              note TEXT NOT NULL DEFAULT ''
+            );
+          ''');
         }
       },
     );

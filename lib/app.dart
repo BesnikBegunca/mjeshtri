@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mjeshtri/page/avancat_page.dart';
+import 'package:mjeshtri/page/expiry_page.dart';
 import 'package:mjeshtri/page/firma_page.dart';
 import 'package:mjeshtri/page/kalkulo_page.dart';
 import 'package:mjeshtri/page/parametrat_page.dart';
@@ -19,7 +20,9 @@ class MjeshtriApp extends StatelessWidget {
       title: 'Mjeshtri',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
-      home: const Shell(),
+      home: const ExpiryPage(
+        childWhenActive: Shell(),
+      ),
     );
   }
 }
@@ -43,6 +46,8 @@ class _ShellState extends State<Shell> {
     QarkullimiVjetorPage(),
     VizatoPage(),
     FirmaPage(),
+    AvancatPage(),
+    LicenseManagePage(),
   ];
 
   @override
@@ -96,6 +101,16 @@ class _ShellState extends State<Shell> {
                 icon: Icon(Icons.badge_outlined),
                 selectedIcon: Icon(Icons.badge),
                 label: Text('Firma'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.payments_outlined),
+                selectedIcon: Icon(Icons.payments),
+                label: Text('Avancat'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.lock_clock_outlined),
+                selectedIcon: Icon(Icons.lock_clock),
+                label: Text('Licenca'),
               ),
             ],
           ),
