@@ -3,26 +3,47 @@ import 'package:flutter/material.dart';
 import 'package:mjeshtri/data/db.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum LicenseDurationType {
+  minutes,
+  months,
+}
+
 class LicenseOption {
   final String label;
-  final int months;
+  final LicenseDurationType type;
+  final int value;
 
-  const LicenseOption(this.label, this.months);
+  const LicenseOption.minutes(this.label, this.value)
+      : type = LicenseDurationType.minutes;
+
+  const LicenseOption.months(this.label, this.value)
+      : type = LicenseDurationType.months;
+
+  String get historyText {
+    switch (type) {
+      case LicenseDurationType.minutes:
+        return '$value minutë';
+      case LicenseDurationType.months:
+        return '$value muaj';
+    }
+  }
 }
 
 class LicenseHistoryEntry {
   final int? id;
   final String actionType;
-  final int monthsAdded;
+  final int amountAdded;
+  final String amountUnit;
   final DateTime? previousExpiryDate;
-  final DateTime newExpiryDate;
+  final DateTime? newExpiryDate;
   final DateTime createdAt;
   final String note;
 
   const LicenseHistoryEntry({
     this.id,
     required this.actionType,
-    required this.monthsAdded,
+    required this.amountAdded,
+    required this.amountUnit,
     required this.previousExpiryDate,
     required this.newExpiryDate,
     required this.createdAt,
@@ -33,12 +54,14 @@ class LicenseHistoryEntry {
     return LicenseHistoryEntry(
       id: map['id'] as int?,
       actionType: (map['actionType'] as String?) ?? '',
-      monthsAdded: ((map['monthsAdded'] as num?) ?? 0).toInt(),
+      amountAdded: ((map['monthsAdded'] as num?) ?? 0).toInt(),
+      amountUnit: (map['amountUnit'] as String?) ?? 'months',
       previousExpiryDate: map['previousExpiryDate'] == null
           ? null
           : DateTime.tryParse(map['previousExpiryDate'] as String),
-      newExpiryDate:
-          DateTime.tryParse(map['newExpiryDate'] as String) ?? DateTime.now(),
+      newExpiryDate: map['newExpiryDate'] == null
+          ? null
+          : DateTime.tryParse(map['newExpiryDate'] as String),
       createdAt:
           DateTime.tryParse(map['createdAt'] as String) ?? DateTime.now(),
       note: (map['note'] as String?) ?? '',
@@ -56,12 +79,13 @@ class AppLicenseService {
   static const String developerPassword = 'fikshifiksh2026';
 
   static const List<LicenseOption> licenseOptions = [
-    LicenseOption('1 muaj', 1),
-    LicenseOption('2 muaj', 2),
-    LicenseOption('3 muaj', 3),
-    LicenseOption('6 muaj', 6),
-    LicenseOption('1 vit', 12),
-    LicenseOption('2 vite', 24),
+    LicenseOption.minutes('1 minutë', 1),
+    LicenseOption.months('1 muaj', 1),
+    LicenseOption.months('2 muaj', 2),
+    LicenseOption.months('3 muaj', 3),
+    LicenseOption.months('6 muaj', 6),
+    LicenseOption.months('1 vit', 12),
+    LicenseOption.months('2 vite', 24),
   ];
 
   static DateTime addMonths(DateTime date, int monthsToAdd) {
@@ -85,9 +109,30 @@ class AppLicenseService {
     );
   }
 
+  static DateTime applyOption(DateTime base, LicenseOption option) {
+    switch (option.type) {
+      case LicenseDurationType.minutes:
+        return base.add(Duration(minutes: option.value));
+      case LicenseDurationType.months:
+        return addMonths(base, option.value);
+    }
+  }
+
   static bool validateDeveloper(String username, String password) {
     return username.trim() == developerUsername &&
         password.trim() == developerPassword;
+  }
+
+  static Future<void> _ensureHistorySchema() async {
+    final db = await AppDb.I.database;
+
+    try {
+      await db.execute(
+        "ALTER TABLE license_history ADD COLUMN amountUnit TEXT DEFAULT 'months'",
+      );
+    } catch (_) {
+      // kolona ekziston
+    }
   }
 
   static Future<void> initializeIfNeeded({
@@ -95,6 +140,7 @@ class AppLicenseService {
   }) async {
     await AppDb.I.init();
     final db = await AppDb.I.database;
+    await _ensureHistorySchema();
 
     final existing = await db.query(
       'app_license',
@@ -126,6 +172,7 @@ class AppLicenseService {
     await db.insert('license_history', {
       'actionType': 'init',
       'monthsAdded': initialMonths,
+      'amountUnit': 'months',
       'previousExpiryDate': null,
       'newExpiryDate': expiryDate.toIso8601String(),
       'createdAt': now.toIso8601String(),
@@ -189,12 +236,14 @@ class AppLicenseService {
     return DateTime.now().isAfter(expiry);
   }
 
-  static Future<void> extendFromCurrentOrNowMonths(
-    int months, {
+  static Future<void> extendFromCurrentOrNow(
+    LicenseOption option, {
     String note = '',
   }) async {
     await initializeIfNeeded();
     final db = await AppDb.I.database;
+    await _ensureHistorySchema();
+
     final now = DateTime.now();
 
     final rows = await db.query(
@@ -205,7 +254,7 @@ class AppLicenseService {
     );
 
     if (rows.isEmpty) {
-      final expiry = addMonths(now, months);
+      final expiry = applyOption(now, option);
 
       await db.insert('app_license', {
         'id': 1,
@@ -216,7 +265,9 @@ class AppLicenseService {
 
       await db.insert('license_history', {
         'actionType': 'extend',
-        'monthsAdded': months,
+        'monthsAdded': option.value,
+        'amountUnit':
+            option.type == LicenseDurationType.minutes ? 'minutes' : 'months',
         'previousExpiryDate': null,
         'newExpiryDate': expiry.toIso8601String(),
         'createdAt': now.toIso8601String(),
@@ -235,7 +286,7 @@ class AppLicenseService {
         ? currentExpiry
         : now;
 
-    final newExpiry = addMonths(base, months);
+    final newExpiry = applyOption(base, option);
 
     await db.update(
       'app_license',
@@ -249,9 +300,73 @@ class AppLicenseService {
 
     await db.insert('license_history', {
       'actionType': 'extend',
-      'monthsAdded': months,
+      'monthsAdded': option.value,
+      'amountUnit':
+          option.type == LicenseDurationType.minutes ? 'minutes' : 'months',
       'previousExpiryDate': currentExpiry?.toIso8601String(),
       'newExpiryDate': newExpiry.toIso8601String(),
+      'createdAt': now.toIso8601String(),
+      'note': note,
+    });
+  }
+
+  static Future<void> deleteLicense({
+    String note = 'Licenca u bë delete nga developer panel',
+  }) async {
+    await initializeIfNeeded();
+    final db = await AppDb.I.database;
+    await _ensureHistorySchema();
+
+    final now = DateTime.now();
+
+    final rows = await db.query(
+      'app_license',
+      where: 'id = ?',
+      whereArgs: [1],
+      limit: 1,
+    );
+
+    DateTime? currentExpiry;
+    DateTime? installDate;
+
+    if (rows.isNotEmpty) {
+      final row = rows.first;
+      installDate = row['installDate'] == null
+          ? now
+          : DateTime.tryParse(row['installDate'] as String);
+      currentExpiry = row['expiryDate'] == null
+          ? null
+          : DateTime.tryParse(row['expiryDate'] as String);
+    }
+
+    final deletedExpiry = now.subtract(const Duration(seconds: 1));
+
+    if (rows.isEmpty) {
+      await db.insert('app_license', {
+        'id': 1,
+        'installDate': now.toIso8601String(),
+        'expiryDate': deletedExpiry.toIso8601String(),
+        'lastUpdatedAt': now.toIso8601String(),
+      });
+    } else {
+      await db.update(
+        'app_license',
+        {
+          'installDate': (installDate ?? now).toIso8601String(),
+          'expiryDate': deletedExpiry.toIso8601String(),
+          'lastUpdatedAt': now.toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [1],
+      );
+    }
+
+    await db.insert('license_history', {
+      'actionType': 'delete',
+      'monthsAdded': 0,
+      'amountUnit': 'months',
+      'previousExpiryDate': currentExpiry?.toIso8601String(),
+      'newExpiryDate': deletedExpiry.toIso8601String(),
       'createdAt': now.toIso8601String(),
       'note': note,
     });
@@ -260,6 +375,7 @@ class AppLicenseService {
   static Future<List<LicenseHistoryEntry>> getHistory() async {
     await initializeIfNeeded();
     final db = await AppDb.I.database;
+    await _ensureHistorySchema();
 
     final rows = await db.query(
       'license_history',
@@ -299,8 +415,12 @@ class _ExpiryPageState extends State<ExpiryPage> {
   bool obscure = true;
   bool loginLoading = false;
   bool extendLoading = false;
+  bool deleteLoading = false;
   bool devLoggedIn = false;
   String? errorText;
+
+  Timer? devSessionTimer;
+  DateTime? devSessionExpiresAt;
 
   late LicenseOption selectedOption;
   List<LicenseHistoryEntry> history = [];
@@ -310,7 +430,7 @@ class _ExpiryPageState extends State<ExpiryPage> {
     super.initState();
 
     selectedOption = AppLicenseService.licenseOptions.firstWhere(
-      (e) => e.months == widget.developerDefaultMonths,
+      (e) => e.value == widget.developerDefaultMonths,
       orElse: () => AppLicenseService.licenseOptions.first,
     );
 
@@ -354,6 +474,50 @@ class _ExpiryPageState extends State<ExpiryPage> {
     });
   }
 
+  void _startDevSession({int seconds = 30}) {
+    devSessionTimer?.cancel();
+
+    setState(() {
+      devLoggedIn = true;
+      devSessionExpiresAt = DateTime.now().add(Duration(seconds: seconds));
+      errorText = null;
+    });
+
+    devSessionTimer = Timer(Duration(seconds: seconds), () {
+      if (!mounted) return;
+      _logoutDev(showMessage: true);
+    });
+  }
+
+  void _logoutDev({bool showMessage = false}) {
+    devSessionTimer?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      devLoggedIn = false;
+      devSessionExpiresAt = null;
+      obscure = true;
+      userC.clear();
+      passC.clear();
+    });
+
+    if (showMessage) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Developer session përfundoi. Bëje login përsëri.'),
+        ),
+      );
+    }
+  }
+
+  String _devSessionText() {
+    if (devSessionExpiresAt == null) return '';
+    final diff = devSessionExpiresAt!.difference(DateTime.now());
+    if (diff.isNegative) return '0 sekonda';
+    return '${diff.inSeconds} sekonda';
+  }
+
   String _fmtDateTime(DateTime? d) {
     if (d == null) return '-';
     return '${d.day.toString().padLeft(2, '0')}.'
@@ -378,6 +542,31 @@ class _ExpiryPageState extends State<ExpiryPage> {
     final seconds = d.inSeconds.remainder(60);
 
     return '$days ditë  $hours orë  $minutes minuta  $seconds sekonda';
+  }
+
+  String _historyAmountText(LicenseHistoryEntry e) {
+    if (e.actionType == 'delete') return '-';
+
+    if (e.amountUnit == 'minutes') {
+      return e.actionType == 'init'
+          ? '${e.amountAdded} minutë (fillestare)'
+          : '${e.amountAdded} minutë';
+    }
+
+    return e.actionType == 'init'
+        ? '${e.amountAdded} muaj (fillestare)'
+        : '${e.amountAdded} muaj';
+  }
+
+  String _actionText(LicenseHistoryEntry e) {
+    switch (e.actionType) {
+      case 'init':
+        return 'Krijim';
+      case 'delete':
+        return 'Delete licence';
+      default:
+        return 'Vazhdim licence';
+    }
   }
 
   Future<void> _loginDev() async {
@@ -406,13 +595,14 @@ class _ExpiryPageState extends State<ExpiryPage> {
 
     setState(() {
       loginLoading = false;
-      devLoggedIn = true;
       errorText = null;
     });
 
+    _startDevSession(seconds: 30);
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Login me sukses. Tash dropdown-i është aktiv.'),
+        content: Text('Login me sukses. Session aktiv 30 sekonda.'),
       ),
     );
   }
@@ -430,8 +620,8 @@ class _ExpiryPageState extends State<ExpiryPage> {
       errorText = null;
     });
 
-    await AppLicenseService.extendFromCurrentOrNowMonths(
-      selectedOption.months,
+    await AppLicenseService.extendFromCurrentOrNow(
+      selectedOption,
       note: 'Vazhduar nga ExpiryPage',
     );
 
@@ -443,10 +633,48 @@ class _ExpiryPageState extends State<ExpiryPage> {
       obscure = true;
     });
 
+    _logoutDev();
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content:
-            Text('Licenca u vazhdua me sukses për ${selectedOption.label}.'),
+        content: Text(
+          'Licenca u vazhdua me sukses për ${selectedOption.label}. Login u mbyll automatikisht.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteLicense() async {
+    if (!devLoggedIn) {
+      setState(() {
+        errorText = 'Së pari bëje login si developer.';
+      });
+      return;
+    }
+
+    setState(() {
+      deleteLoading = true;
+      errorText = null;
+    });
+
+    await AppLicenseService.deleteLicense(
+      note: 'Delete nga ExpiryPage',
+    );
+
+    await _load();
+
+    if (!mounted) return;
+    setState(() {
+      deleteLoading = false;
+    });
+
+    _logoutDev();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Licenca u bë delete. Login u mbyll automatikisht.',
+        ),
       ),
     );
   }
@@ -454,6 +682,7 @@ class _ExpiryPageState extends State<ExpiryPage> {
   @override
   void dispose() {
     timer?.cancel();
+    devSessionTimer?.cancel();
     userC.dispose();
     passC.dispose();
     super.dispose();
@@ -493,17 +722,11 @@ class _ExpiryPageState extends State<ExpiryPage> {
             DataColumn(label: Text('Shënim')),
           ],
           rows: history.map((e) {
-            final actionText =
-                e.actionType == 'init' ? 'Krijim' : 'Vazhdim licence';
-            final monthsText = e.actionType == 'init'
-                ? '${e.monthsAdded} muaj (fillestare)'
-                : '${e.monthsAdded} muaj';
-
             return DataRow(
               cells: [
                 DataCell(Text(_fmtDateTime(e.createdAt))),
-                DataCell(Text(actionText)),
-                DataCell(Text(monthsText)),
+                DataCell(Text(_actionText(e))),
+                DataCell(Text(_historyAmountText(e))),
                 DataCell(Text(_fmtDateTime(e.previousExpiryDate))),
                 DataCell(Text(_fmtDateTime(e.newExpiryDate))),
                 DataCell(Text(e.note.isEmpty ? '-' : e.note)),
@@ -518,9 +741,9 @@ class _ExpiryPageState extends State<ExpiryPage> {
   Widget _buildDeveloperPanel() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
         color: Colors.white.withOpacity(0.04),
       ),
@@ -530,11 +753,11 @@ class _ExpiryPageState extends State<ExpiryPage> {
           const Text(
             'Developer Login',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           TextField(
             controller: userC,
             decoration: const InputDecoration(
@@ -571,7 +794,7 @@ class _ExpiryPageState extends State<ExpiryPage> {
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            height: 50,
+            height: 52,
             child: ElevatedButton.icon(
               onPressed: devLoggedIn || loginLoading ? null : _loginDev,
               icon: loginLoading
@@ -583,16 +806,27 @@ class _ExpiryPageState extends State<ExpiryPage> {
                   : const Icon(Icons.login),
               label: Text(
                 devLoggedIn
-                    ? 'Login i kryer'
+                    ? 'Session aktive'
                     : loginLoading
                         ? 'Duke verifikuar...'
                         : 'Login',
               ),
             ),
           ),
+          if (devLoggedIn) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Session aktiv edhe ${_devSessionText()}',
+              style: const TextStyle(
+                color: Colors.amber,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           DropdownButtonFormField<LicenseOption>(
             value: selectedOption,
+            isExpanded: true,
             decoration: const InputDecoration(
               labelText: 'Zgjatja e licencës',
               prefixIcon: Icon(Icons.schedule_outlined),
@@ -615,23 +849,57 @@ class _ExpiryPageState extends State<ExpiryPage> {
                 : null,
           ),
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed:
-                  (!devLoggedIn || extendLoading) ? null : _extendLicense,
-              icon: extendLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.update),
-              label: Text(
-                extendLoading ? 'Duke vazhduar...' : 'Vazhdo licencën',
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    onPressed: (!devLoggedIn || extendLoading || deleteLoading)
+                        ? null
+                        : _extendLicense,
+                    icon: extendLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.update),
+                    label: Text(
+                      extendLoading ? 'Duke vazhduar...' : 'Vazhdo licencën',
+                    ),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: (!devLoggedIn || deleteLoading || extendLoading)
+                        ? null
+                        : _deleteLicense,
+                    icon: deleteLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.delete_outline),
+                    label: Text(
+                      deleteLoading ? 'Duke fshirë...' : 'Delete License',
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           if (errorText != null) ...[
             const SizedBox(height: 12),
@@ -660,6 +928,18 @@ class _ExpiryPageState extends State<ExpiryPage> {
     );
   }
 
+  Widget _fullWidthWrapper({required Widget child}) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: double.infinity,
+          child: child,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -676,7 +956,7 @@ class _ExpiryPageState extends State<ExpiryPage> {
           children: [
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               color: Colors.green.withOpacity(0.12),
               child: Wrap(
                 runSpacing: 8,
@@ -710,72 +990,65 @@ class _ExpiryPageState extends State<ExpiryPage> {
     }
 
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Card(
-              elevation: 10,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.lock_clock_rounded,
-                      size: 74,
-                      color: Colors.redAccent,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Licenca ka skaduar',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Të dhënat nuk janë fshirë. Për të vazhduar përdorimin, bëje login si developer dhe pastaj aktivizohet dropdown-i për zgjatje.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(height: 1.5),
-                    ),
-                    const SizedBox(height: 22),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.white12),
-                        color: Colors.white.withOpacity(0.04),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                              'Data e instalimit: ${_fmtDateTime(installDate)}'),
-                          const SizedBox(height: 8),
-                          Text('Data e skadimit: ${_fmtDateTime(expiryDate)}'),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Koha e mbetur: 0 ditë  0 orë  0 minuta  0 sekonda',
-                            style: TextStyle(
-                              color: Colors.redAccent,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    _buildDeveloperPanel(),
-                  ],
+      body: _fullWidthWrapper(
+        child: Card(
+          elevation: 10,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.lock_clock_rounded,
+                  size: 74,
+                  color: Colors.redAccent,
                 ),
-              ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Licenca ka skaduar',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Të dhënat nuk janë fshirë. Për të vazhduar përdorimin, bëje login si developer dhe pastaj aktivizohet dropdown-i për zgjatje.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(height: 1.5),
+                ),
+                const SizedBox(height: 22),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white12),
+                    color: Colors.white.withOpacity(0.04),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Data e instalimit: ${_fmtDateTime(installDate)}'),
+                      const SizedBox(height: 8),
+                      Text('Data e skadimit: ${_fmtDateTime(expiryDate)}'),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Koha e mbetur: 0 ditë  0 orë  0 minuta  0 sekonda',
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _buildDeveloperPanel(),
+              ],
             ),
           ),
         ),
@@ -801,9 +1074,13 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
 
   bool obscure = true;
   bool saving = false;
+  bool deleteLoading = false;
   bool loginLoading = false;
   bool devLoggedIn = false;
   String? errorText;
+
+  Timer? devSessionTimer;
+  DateTime? devSessionExpiresAt;
 
   LicenseOption selectedOption = AppLicenseService.licenseOptions[0];
   List<LicenseHistoryEntry> history = [];
@@ -828,6 +1105,50 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
     });
   }
 
+  void _startDevSession({int seconds = 30}) {
+    devSessionTimer?.cancel();
+
+    setState(() {
+      devLoggedIn = true;
+      devSessionExpiresAt = DateTime.now().add(Duration(seconds: seconds));
+      errorText = null;
+    });
+
+    devSessionTimer = Timer(Duration(seconds: seconds), () {
+      if (!mounted) return;
+      _logoutDev(showMessage: true);
+    });
+  }
+
+  void _logoutDev({bool showMessage = false}) {
+    devSessionTimer?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      devLoggedIn = false;
+      devSessionExpiresAt = null;
+      obscure = true;
+      userC.clear();
+      passC.clear();
+    });
+
+    if (showMessage) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Developer session përfundoi. Bëje login përsëri.'),
+        ),
+      );
+    }
+  }
+
+  String _devSessionText() {
+    if (devSessionExpiresAt == null) return '';
+    final diff = devSessionExpiresAt!.difference(DateTime.now());
+    if (diff.isNegative) return '0 sekonda';
+    return '${diff.inSeconds} sekonda';
+  }
+
   String _fmtDateTime(DateTime? d) {
     if (d == null) return '-';
     return '${d.day.toString().padLeft(2, '0')}.'
@@ -836,6 +1157,31 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
         '${d.hour.toString().padLeft(2, '0')}:'
         '${d.minute.toString().padLeft(2, '0')}:'
         '${d.second.toString().padLeft(2, '0')}';
+  }
+
+  String _historyAmountText(LicenseHistoryEntry e) {
+    if (e.actionType == 'delete') return '-';
+
+    if (e.amountUnit == 'minutes') {
+      return e.actionType == 'init'
+          ? '${e.amountAdded} minutë (fillestare)'
+          : '${e.amountAdded} minutë';
+    }
+
+    return e.actionType == 'init'
+        ? '${e.amountAdded} muaj (fillestare)'
+        : '${e.amountAdded} muaj';
+  }
+
+  String _actionText(LicenseHistoryEntry e) {
+    switch (e.actionType) {
+      case 'init':
+        return 'Krijim';
+      case 'delete':
+        return 'Delete licence';
+      default:
+        return 'Vazhdim licence';
+    }
   }
 
   Future<void> _loginDev() async {
@@ -864,13 +1210,14 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
 
     setState(() {
       loginLoading = false;
-      devLoggedIn = true;
       errorText = null;
     });
 
+    _startDevSession(seconds: 30);
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Login me sukses. Dropdown-i tani është aktiv.'),
+        content: Text('Login me sukses. Session aktiv 30 sekonda.'),
       ),
     );
   }
@@ -888,8 +1235,8 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
       errorText = null;
     });
 
-    await AppLicenseService.extendFromCurrentOrNowMonths(
-      selectedOption.months,
+    await AppLicenseService.extendFromCurrentOrNow(
+      selectedOption,
       note: 'Vazhduar nga LicenseManagePage',
     );
 
@@ -901,9 +1248,46 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
       obscure = true;
     });
 
+    _logoutDev();
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Licenca u zgjat për ${selectedOption.label}.'),
+        content: Text(
+          'Licenca u zgjat për ${selectedOption.label}. Login u mbyll automatikisht.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteLicense() async {
+    if (!devLoggedIn) {
+      setState(() {
+        errorText = 'Së pari bëje login si developer.';
+      });
+      return;
+    }
+
+    setState(() {
+      deleteLoading = true;
+      errorText = null;
+    });
+
+    await AppLicenseService.deleteLicense(
+      note: 'Delete nga LicenseManagePage',
+    );
+
+    await _load();
+
+    if (!mounted) return;
+    setState(() {
+      deleteLoading = false;
+    });
+
+    _logoutDev();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Licenca u bë delete. Login u mbyll automatikisht.'),
       ),
     );
   }
@@ -939,17 +1323,11 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
             DataColumn(label: Text('Shënim')),
           ],
           rows: history.map((e) {
-            final actionText =
-                e.actionType == 'init' ? 'Krijim' : 'Vazhdim licence';
-            final monthsText = e.actionType == 'init'
-                ? '${e.monthsAdded} muaj (fillestare)'
-                : '${e.monthsAdded} muaj';
-
             return DataRow(
               cells: [
                 DataCell(Text(_fmtDateTime(e.createdAt))),
-                DataCell(Text(actionText)),
-                DataCell(Text(monthsText)),
+                DataCell(Text(_actionText(e))),
+                DataCell(Text(_historyAmountText(e))),
                 DataCell(Text(_fmtDateTime(e.previousExpiryDate))),
                 DataCell(Text(_fmtDateTime(e.newExpiryDate))),
                 DataCell(Text(e.note.isEmpty ? '-' : e.note)),
@@ -963,6 +1341,7 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
 
   @override
   void dispose() {
+    devSessionTimer?.cancel();
     userC.dispose();
     passC.dispose();
     super.dispose();
@@ -971,178 +1350,241 @@ class _LicenseManagePageState extends State<LicenseManagePage> {
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 860),
-          child: Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  const Icon(
-                    Icons.admin_panel_settings_outlined,
-                    size: 60,
-                    color: Colors.amber,
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Menaxhimi i Licencës',
-                    style: TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.bold,
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: double.infinity,
+            child: Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.admin_panel_settings_outlined,
+                      size: 60,
+                      color: Colors.amber,
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
-                      color: Colors.white.withOpacity(0.04),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Data e instalimit: ${_fmtDateTime(installDate)}'),
-                        const SizedBox(height: 8),
-                        Text('Data e skadimit: ${_fmtDateTime(expiryDate)}'),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: userC,
-                    enabled: !devLoggedIn,
-                    decoration: const InputDecoration(
-                      labelText: 'Username',
-                      prefixIcon: Icon(Icons.person_outline),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: passC,
-                    enabled: !devLoggedIn,
-                    obscureText: obscure,
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: const Icon(Icons.lock_outline),
-                      suffixIcon: IconButton(
-                        onPressed: () {
-                          setState(() => obscure = !obscure);
-                        },
-                        icon: Icon(
-                          obscure
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                        ),
-                      ),
-                    ),
-                    onSubmitted: (_) {
-                      if (!devLoggedIn) {
-                        _loginDev();
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton.icon(
-                      onPressed: devLoggedIn || loginLoading ? null : _loginDev,
-                      icon: loginLoading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.login),
-                      label: Text(
-                        devLoggedIn
-                            ? 'Login i kryer'
-                            : loginLoading
-                                ? 'Duke verifikuar...'
-                                : 'Login',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<LicenseOption>(
-                    value: selectedOption,
-                    decoration: const InputDecoration(
-                      labelText: 'Zgjatja e licencës',
-                      prefixIcon: Icon(Icons.date_range_outlined),
-                    ),
-                    items: AppLicenseService.licenseOptions
-                        .map(
-                          (e) => DropdownMenuItem<LicenseOption>(
-                            value: e,
-                            child: Text(e.label),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: devLoggedIn
-                        ? (value) {
-                            if (value == null) return;
-                            setState(() {
-                              selectedOption = value;
-                            });
-                          }
-                        : null,
-                  ),
-                  if (errorText != null) ...[
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        errorText!,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton.icon(
-                      onPressed: (!devLoggedIn || saving) ? null : _extend,
-                      icon: saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.update),
-                      label: Text(
-                        saving ? 'Duke ruajtur...' : 'Vazhdo licencën',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Historia e vazhdimeve',
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Menaxhimi i Licencës',
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: 26,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildHistoryTable(),
-                ],
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.white12),
+                        color: Colors.white.withOpacity(0.04),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Data e instalimit: ${_fmtDateTime(installDate)}',
+                          ),
+                          const SizedBox(height: 8),
+                          Text('Data e skadimit: ${_fmtDateTime(expiryDate)}'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: userC,
+                      enabled: !devLoggedIn,
+                      decoration: const InputDecoration(
+                        labelText: 'Username',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: passC,
+                      enabled: !devLoggedIn,
+                      obscureText: obscure,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setState(() => obscure = !obscure);
+                          },
+                          icon: Icon(
+                            obscure
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                      onSubmitted: (_) {
+                        if (!devLoggedIn) {
+                          _loginDev();
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed:
+                            devLoggedIn || loginLoading ? null : _loginDev,
+                        icon: loginLoading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.login),
+                        label: Text(
+                          devLoggedIn
+                              ? 'Session aktive'
+                              : loginLoading
+                                  ? 'Duke verifikuar...'
+                                  : 'Login',
+                        ),
+                      ),
+                    ),
+                    if (devLoggedIn) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Session aktiv edhe ${_devSessionText()}',
+                          style: const TextStyle(
+                            color: Colors.amber,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<LicenseOption>(
+                      value: selectedOption,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Zgjatja e licencës',
+                        prefixIcon: Icon(Icons.date_range_outlined),
+                      ),
+                      items: AppLicenseService.licenseOptions
+                          .map(
+                            (e) => DropdownMenuItem<LicenseOption>(
+                              value: e,
+                              child: Text(e.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: devLoggedIn
+                          ? (value) {
+                              if (value == null) return;
+                              setState(() {
+                                selectedOption = value;
+                              });
+                            }
+                          : null,
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          errorText!,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 52,
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  (!devLoggedIn || saving || deleteLoading)
+                                      ? null
+                                      : _extend,
+                              icon: saving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.update),
+                              label: Text(
+                                saving ? 'Duke ruajtur...' : 'Vazhdo licencën',
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: SizedBox(
+                            height: 52,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed:
+                                  (!devLoggedIn || deleteLoading || saving)
+                                      ? null
+                                      : _deleteLicense,
+                              icon: deleteLoading
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.delete_outline),
+                              label: Text(
+                                deleteLoading
+                                    ? 'Duke fshirë...'
+                                    : 'Delete License',
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Historia e vazhdimeve',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildHistoryTable(),
+                  ],
+                ),
               ),
             ),
           ),
